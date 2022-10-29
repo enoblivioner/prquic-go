@@ -23,7 +23,7 @@ import (
 
 // allows mocking of quic.Listen and quic.ListenAddr
 var (
-	quicListen     = quic.ListenEarly
+	quicListen     = quic.ListenEarly  //触发连接中的报文处理
 	quicListenAddr = quic.ListenAddrEarly
 )
 
@@ -263,7 +263,7 @@ func (s *Server) serveConn(tlsConf *tls.Config, conn net.PacketConn) error {
 	} else {
 		quicConf = s.QuicConfig.Clone()
 	}
-	if s.EnableDatagrams {
+	if s.EnableDatagrams {  //不可靠传输的Datagram
 		quicConf.EnableDatagrams = true
 	}
 
@@ -274,7 +274,8 @@ func (s *Server) serveConn(tlsConf *tls.Config, conn net.PacketConn) error {
 		if addr == "" {
 			addr = ":https"
 		}
-		ln, err = quicListenAddr(addr, baseConf, quicConf)
+		//ln其实是一个baseServer，即http3.Server调用了baseServer进行握手监听
+		ln, err = quicListenAddr(addr, baseConf, quicConf) 
 	} else {
 		ln, err = quicListen(conn, baseConf, quicConf)
 	}
@@ -416,7 +417,6 @@ func (s *Server) handleConn(conn quic.EarlyConnection) {
 	b = quicvarint.Append(b, streamTypeControlStream) // stream type
 	b = (&settingsFrame{Datagram: s.EnableDatagrams, Other: s.AdditionalSettings}).Append(b)
 	str.Write(b)
-
 	go s.handleUnidirectionalStreams(conn)
 
 	// Process all requests immediately.
@@ -453,14 +453,14 @@ func (s *Server) handleConn(conn quic.EarlyConnection) {
 	}
 }
 
-func (s *Server) handleUnidirectionalStreams(conn quic.EarlyConnection) {
+func (s *Server) handleUnidirectionalStreams(conn quic.EarlyConnection) { 
+	//EarlyConnection也是Connection，其接口中的方法被Connection实现
 	for {
 		str, err := conn.AcceptUniStream(context.Background())
 		if err != nil {
 			s.logger.Debugf("accepting unidirectional stream failed: %s", err)
 			return
 		}
-
 		go func(str quic.ReceiveStream) {
 			streamType, err := quicvarint.Read(quicvarint.NewReader(str))
 			if err != nil {

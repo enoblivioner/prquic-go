@@ -126,6 +126,7 @@ func (s *sendStream) Write(p []byte) (int, error) {
 		// This allows us to return Write() when all data but x bytes have been sent out.
 		// When the user now calls Close(), this is much more likely to happen before we popped that last STREAM frame,
 		// allowing us to set the FIN bit on that frame (instead of sending an empty STREAM frame with FIN).
+		// FIN bit在Stream Frame的首字节（Type字节）的第二bit位，置为1时表示发送结束
 		if s.canBufferStreamFrame() && len(s.dataForWriting) > 0 {
 			if s.nextFrame == nil {
 				f := wire.GetStreamFrame()
@@ -194,6 +195,9 @@ func (s *sendStream) Write(p []byte) (int, error) {
 	return bytesWritten, nil
 }
 
+//检查待写入的帧能否存下要写入的数据，
+//检查方式为比较帧中已有数据的大小加上要写入数据的大小是否小于QUIC报文允许的最大数据大小，
+//如果返回True，则代表能装下。
 func (s *sendStream) canBufferStreamFrame() bool {
 	var l protocol.ByteCount
 	if s.nextFrame != nil {

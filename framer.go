@@ -48,6 +48,7 @@ func newFramer(
 	}
 }
 
+//首先检查流队列，然后检查控制帧
 func (f *framerI) HasData() bool {
 	f.mutex.Lock()
 	hasData := len(f.streamQueue) > 0
@@ -61,12 +62,14 @@ func (f *framerI) HasData() bool {
 	return hasData
 }
 
+//添加新的控制帧去队列里
 func (f *framerI) QueueControlFrame(frame wire.Frame) {
 	f.controlFrameMutex.Lock()
 	f.controlFrames = append(f.controlFrames, frame)
 	f.controlFrameMutex.Unlock()
 }
 
+//把队列里的控制帧一个一个放入[]ackhandler.Frame中
 func (f *framerI) AppendControlFrames(frames []ackhandler.Frame, maxLen protocol.ByteCount) ([]ackhandler.Frame, protocol.ByteCount) {
 	var length protocol.ByteCount
 	f.controlFrameMutex.Lock()
@@ -84,6 +87,7 @@ func (f *framerI) AppendControlFrames(frames []ackhandler.Frame, maxLen protocol
 	return frames, length
 }
 
+//将activeStreams中流的id添加到流队列中，假如流id对应的流结构体为空。
 func (f *framerI) AddActiveStream(id protocol.StreamID) {
 	f.mutex.Lock()
 	if _, ok := f.activeStreams[id]; !ok {
@@ -93,6 +97,7 @@ func (f *framerI) AddActiveStream(id protocol.StreamID) {
 	f.mutex.Unlock()
 }
 
+//轮流从各个流中取出一帧放到ackhandler.Frame中
 func (f *framerI) AppendStreamFrames(frames []ackhandler.Frame, maxLen protocol.ByteCount) ([]ackhandler.Frame, protocol.ByteCount) {
 	var length protocol.ByteCount
 	var lastFrame *ackhandler.Frame
@@ -118,7 +123,7 @@ func (f *framerI) AppendStreamFrames(frames []ackhandler.Frame, maxLen protocol.
 		// Therefore, we can pretend to have more bytes available when popping
 		// the STREAM frame (which will always have the DataLen set).
 		remainingLen += quicvarint.Len(uint64(remainingLen))
-		frame, hasMoreData := str.popStreamFrame(remainingLen)
+		frame, hasMoreData := str.popStreamFrame(remainingLen)  //包含从stream帧的重传队列取数据
 		if hasMoreData { // put the stream back in the queue (at the end)
 			f.streamQueue = append(f.streamQueue, id)
 		} else { // no more data to send. Stream is not active any more

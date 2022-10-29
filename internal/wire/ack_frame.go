@@ -22,6 +22,7 @@ type AckFrame struct {
 }
 
 // parseAckFrame reads an ACK frame
+// 得到ACK帧确认的包号范围
 func parseAckFrame(r *bytes.Reader, ackDelayExponent uint8, _ protocol.VersionNumber) (*AckFrame, error) {
 	typeByte, err := r.ReadByte()
 	if err != nil {

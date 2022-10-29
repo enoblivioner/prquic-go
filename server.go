@@ -184,13 +184,14 @@ func listen(conn net.PacketConn, tlsConf *tls.Config, config *Config, acceptEarl
 	if err := validateConfig(config); err != nil {
 		return nil, err
 	}
-	config = populateServerConfig(config)
+	config = populateServerConfig(config)  //如果config为空（第一次就是空），则初始化为其中的各个默认值
+	
 	for _, v := range config.Versions {
 		if !protocol.IsValidVersion(v) {
 			return nil, fmt.Errorf("%s is not a valid QUIC version", v)
 		}
 	}
-
+	//getMultiplexer()会监听并接收udp连接上的数据
 	connHandler, err := getMultiplexer().AddConn(conn, config.ConnectionIDGenerator.ConnectionIDLen(), config.StatelessResetKey, config.Tracer)
 	if err != nil {
 		return nil, err
@@ -220,7 +221,7 @@ func listen(conn net.PacketConn, tlsConf *tls.Config, config *Config, acceptEarl
 	go s.run()
 	connHandler.SetServer(s)
 	s.logger.Debugf("Listening for %s connections on %s", conn.LocalAddr().Network(), conn.LocalAddr().String())
-	return s, nil
+	return s, nil //return s是立即执行的，但是只要main函数没结束，go s.run()就还在运行
 }
 
 func (s *baseServer) run() {
@@ -234,7 +235,7 @@ func (s *baseServer) run() {
 		select {
 		case <-s.errorChan:
 			return
-		case p := <-s.receivedPackets:
+		case p := <-s.receivedPackets:   
 			if bufferStillInUse := s.handlePacketImpl(p); !bufferStillInUse {
 				p.buffer.Release()
 			}
@@ -349,6 +350,7 @@ func (s *baseServer) handlePacketImpl(p *receivedPacket) bool /* is the buffer s
 	}
 	// If we're creating a new connection, the packet will be passed to the connection.
 	// The header will then be parsed again.
+	// 获取报文头部hdr
 	hdr, _, _, err := wire.ParsePacket(p.data, s.config.ConnectionIDGenerator.ConnectionIDLen())
 	if err != nil {
 		if s.config.Tracer != nil {
@@ -378,6 +380,7 @@ func (s *baseServer) handlePacketImpl(p *receivedPacket) bool /* is the buffer s
 
 	s.logger.Debugf("<- Received Initial packet.")
 
+	//处理报文数据和头部
 	if err := s.handleInitialImpl(p, hdr); err != nil {
 		s.logger.Errorf("Error occurred handling initial packet: %s", err)
 	}
@@ -433,6 +436,7 @@ func (s *baseServer) handleInitialImpl(p *receivedPacket, hdr *wire.Header) erro
 
 	clientAddrIsValid := s.validateToken(token, p.remoteAddr)
 
+	//安全验证
 	if token != nil && !clientAddrIsValid {
 		// For invalid and expired non-retry tokens, we don't send an INVALID_TOKEN error.
 		// We just ignore them, and act as if there was no token on this packet at all.
@@ -462,6 +466,7 @@ func (s *baseServer) handleInitialImpl(p *receivedPacket, hdr *wire.Header) erro
 		return nil
 	}
 
+	//服务器连接数满后拒绝连接接入
 	if queueLen := atomic.LoadInt32(&s.connQueueLen); queueLen >= protocol.MaxAcceptQueueSize {
 		s.logger.Debugf("Rejecting new connection. Server currently busy. Accept queue length: %d (max %d)", queueLen, protocol.MaxAcceptQueueSize)
 		go func() {
@@ -477,9 +482,9 @@ func (s *baseServer) handleInitialImpl(p *receivedPacket, hdr *wire.Header) erro
 	if err != nil {
 		return err
 	}
-	s.logger.Debugf("Changing connection ID to %s.", connID)
+	s.logger.Debugf("Changing connection ID to %s.", connID) 
 	var conn quicConn
-	tracingID := nextConnTracingID()
+	tracingID := nextConnTracingID() // 原子操作: ID+1
 	if added := s.connHandler.AddWithConnID(hdr.DestConnectionID, connID, func() packetHandler {
 		var tracer logging.ConnectionTracer
 		if s.config.Tracer != nil {
@@ -494,13 +499,13 @@ func (s *baseServer) handleInitialImpl(p *receivedPacket, hdr *wire.Header) erro
 				connID,
 			)
 		}
-		conn = s.newConn(
+		conn = s.newConn(  //连接迁移？
 			newSendConn(s.conn, p.remoteAddr, p.info),
 			s.connHandler,
-			origDestConnID,
-			retrySrcConnID,
-			hdr.DestConnectionID,
-			hdr.SrcConnectionID,
+			origDestConnID,  
+			retrySrcConnID,  
+			hdr.DestConnectionID,  
+			hdr.SrcConnectionID,  
 			connID,
 			s.connHandler.GetStatelessResetToken(connID),
 			s.config,
@@ -513,7 +518,7 @@ func (s *baseServer) handleInitialImpl(p *receivedPacket, hdr *wire.Header) erro
 			s.logger,
 			hdr.Version,
 		)
-		conn.handlePacket(p)
+		conn.handlePacket(p) //将数据p挂载到conn上
 		return conn
 	}); !added {
 		return nil

@@ -44,7 +44,7 @@ var _ = Describe("Datagram test", func() {
 						EnableDatagrams: enableDatagram,
 						Versions:        []protocol.VersionNumber{version},
 					}),
-				)
+				)  //返回一个baseServer（用于处理握手的），且在run，时刻等待接收处理数据
 				Expect(err).ToNot(HaveOccurred())
 
 				go func() {

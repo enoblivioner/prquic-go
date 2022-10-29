@@ -359,7 +359,7 @@ func (h *packetHandlerMap) close(e error) error {
 func (h *packetHandlerMap) listen() {
 	defer close(h.listening)
 	for {
-		p, err := h.conn.ReadPacket()
+		p, err := h.conn.ReadPacket()  //在这里读udp连接上发过来的数据
 		//nolint:staticcheck // SA1019 ignore this!
 		// TODO: This code is used to ignore wsa errors on Windows.
 		// Since net.Error.Temporary is deprecated as of Go 1.18, we should find a better solution.
@@ -394,7 +394,7 @@ func (h *packetHandlerMap) handlePacket(p *receivedPacket) {
 		return
 	}
 
-	if handler, ok := h.handlers[connID]; ok {
+	if handler, ok := h.handlers[connID]; ok {  //handler的类型是*quic.connection
 		if ha, ok := handler.(*zeroRTTQueue); ok { // only enqueue 0-RTT packets in the 0-RTT queue
 			if wire.Is0RTTPacket(p.data) {
 				ha.handlePacket(p)

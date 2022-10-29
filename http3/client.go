@@ -205,7 +205,7 @@ func (c *client) handleUnidirectionalStreams() {
 				c.conn.CloseWithError(quic.ApplicationErrorCode(errorFrameError), "")
 				return
 			}
-			sf, ok := f.(*settingsFrame)
+			sf, ok := f.(*settingsFrame) //获取控制帧信息
 			if !ok {
 				c.conn.CloseWithError(quic.ApplicationErrorCode(errorMissingSettings), "")
 				return
@@ -288,6 +288,7 @@ func (c *client) RoundTripOpt(req *http.Request, opt RoundTripOpt) (*http.Respon
 		doneChan = nil
 	}
 	rsp, rerr := c.doRequest(req, str, opt, doneChan)
+
 	if rerr.err != nil { // if any error occurred
 		close(reqDone)
 		<-done
@@ -348,7 +349,6 @@ func (c *client) doRequest(req *http.Request, str quic.Stream, opt RoundTripOpt,
 	if req.Body == nil && !opt.DontCloseRequestStream {
 		str.Close()
 	}
-
 	hstr := newStream(str, func() { c.conn.CloseWithError(quic.ApplicationErrorCode(errorFrameUnexpected), "") })
 	if req.Body != nil {
 		// send the request body asynchronously
@@ -361,7 +361,6 @@ func (c *client) doRequest(req *http.Request, str quic.Stream, opt RoundTripOpt,
 			}
 		}()
 	}
-
 	frame, err := parseNextFrame(str, nil)
 	if err != nil {
 		return nil, newStreamError(errorFrameError, err)
@@ -428,6 +427,5 @@ func (c *client) doRequest(req *http.Request, str quic.Stream, opt RoundTripOpt,
 	} else {
 		res.Body = respBody
 	}
-
 	return res, requestError{}
 }

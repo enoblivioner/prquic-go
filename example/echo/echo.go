@@ -63,7 +63,6 @@ func clientMain() error {
 	if err != nil {
 		return err
 	}
-
 	fmt.Printf("Client: Sending '%s'\n", message)
 	_, err = stream.Write([]byte(message))
 	if err != nil {

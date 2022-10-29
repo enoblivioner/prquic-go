@@ -52,8 +52,8 @@ func (q *retransmissionQueue) HasAppData() bool {
 }
 
 func (q *retransmissionQueue) AddAppData(f wire.Frame) {
-	if _, ok := f.(*wire.StreamFrame); ok {
-		panic("STREAM frames are handled with their respective streams.")
+	if _, ok := f.(*wire.StreamFrame); ok {  //若是StreamFrame就不添加到appData了
+		panic("STREAM frames are handled with their respective streams.")  
 	}
 	q.appData = append(q.appData, f)
 }

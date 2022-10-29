@@ -548,7 +548,6 @@ func (s *connection) preSetup() {
 // run the connection main loop
 func (s *connection) run() error {
 	defer s.ctxCancel()
-
 	s.timer = utils.NewTimer()
 
 	handshaking := make(chan struct{})
@@ -556,6 +555,8 @@ func (s *connection) run() error {
 		defer close(handshaking)
 		s.cryptoStreamHandler.RunHandshake()
 	}()
+
+	//发送包
 	go func() {
 		if err := s.sendQueue.Run(); err != nil {
 			s.destroyImpl(err)
@@ -595,7 +596,7 @@ runLoop:
 		s.maybeResetTimer()
 
 		var processedUndecryptablePacket bool
-		if len(s.undecryptablePacketsToProcess) > 0 {
+		if len(s.undecryptablePacketsToProcess) > 0 {  //执行example中脚本时不进入该语句
 			queue := s.undecryptablePacketsToProcess
 			s.undecryptablePacketsToProcess = nil
 			for _, p := range queue {
@@ -611,7 +612,7 @@ runLoop:
 			}
 		}
 		// If we processed any undecryptable packets, jump to the resetting of the timers directly.
-		if !processedUndecryptablePacket {
+		if !processedUndecryptablePacket {  //执行example中脚本时会进入该语句
 			select {
 			case closeErr = <-s.closeChan:
 				break runLoop
@@ -665,6 +666,7 @@ runLoop:
 		}
 
 		now := time.Now()
+		//假如超时
 		if timeout := s.sentPacketHandler.GetLossDetectionTimeout(); !timeout.IsZero() && timeout.Before(now) {
 			// This could cause packets to be retransmitted.
 			// Check it before trying to send packets.
@@ -705,7 +707,7 @@ runLoop:
 			sendQueueAvailable = nil
 		}
 	}
-
+	
 	s.cryptoStreamHandler.Close()
 	<-handshaking
 	s.handleCloseError(&closeErr)
@@ -843,7 +845,7 @@ func (s *connection) handleHandshakeConfirmed() {
 }
 
 func (s *connection) handlePacketImpl(rp *receivedPacket) bool {
-	s.sentPacketHandler.ReceivedBytes(rp.Size())
+	s.sentPacketHandler.ReceivedBytes(rp.Size())  //增加收到的字节数记录
 
 	if wire.IsVersionNegotiationPacket(rp.data) {
 		s.handleVersionNegotiationPacket(rp)
@@ -984,7 +986,6 @@ func (s *connection) handleShortHeaderPacket(p *receivedPacket, destConnID proto
 
 func (s *connection) handleLongHeaderPacket(p *receivedPacket, hdr *wire.Header) bool /* was the packet successfully processed */ {
 	var wasQueued bool
-
 	defer func() {
 		// Put back the packet buffer if the packet wasn't queued for later decryption.
 		if !wasQueued {
@@ -1513,6 +1514,7 @@ func (s *connection) handleHandshakeDoneFrame() error {
 }
 
 func (s *connection) handleAckFrame(frame *wire.AckFrame, encLevel protocol.EncryptionLevel) error {
+	//ReceivedAck()：根据Ack，更新RTT、cwnd，把丢失的包送入重传队列
 	acked1RTTPacket, err := s.sentPacketHandler.ReceivedAck(frame, encLevel, s.lastPacketReceivedTime)
 	if err != nil {
 		return err
@@ -1755,11 +1757,10 @@ func (s *connection) applyTransportParameters() {
 }
 
 func (s *connection) sendPackets() error {
-	s.pacingDeadline = time.Time{}
-
+	s.pacingDeadline = time.Time{}  //定义下一个包应该发送的时间
 	var sentPacket bool // only used in for packets sent in send mode SendAny
 	for {
-		sendMode := s.sentPacketHandler.SendMode()
+		sendMode := s.sentPacketHandler.SendMode()  //sendMode决定了能被发送的包的类别
 		if sendMode == ackhandler.SendAny && s.handshakeComplete && !s.sentPacketHandler.HasPacingBudget() {
 			deadline := s.sentPacketHandler.TimeUntilSend()
 			if deadline.IsZero() {

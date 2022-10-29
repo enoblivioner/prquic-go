@@ -59,6 +59,7 @@ type coalescedPacket struct {
 	packets []*packetContents
 }
 
+//检查packetContents是三种加密等级中的哪种
 func (p *packetContents) EncryptionLevel() protocol.EncryptionLevel {
 	if !p.header.IsLongHeader {
 		return protocol.Encryption1RTT
@@ -76,10 +77,12 @@ func (p *packetContents) EncryptionLevel() protocol.EncryptionLevel {
 	}
 }
 
+//检查packContents是否能触发ACK，即含有至少一帧的ACK触发帧
 func (p *packetContents) IsAckEliciting() bool {
 	return ackhandler.HasAckElicitingFrames(p.frames)
 }
 
+//根据包的内容设置其最大ACK、其中帧的OnLost函数（用于丢失重传）等信息
 func (p *packetContents) ToAckHandlerPacket(now time.Time, q *retransmissionQueue) *ackhandler.Packet {
 	largestAcked := protocol.InvalidPacketNumber
 	if p.ack != nil {
@@ -611,7 +614,7 @@ func (p *packetPacker) composeNextPacket(maxFrameSize protocol.ByteCount, onlyAc
 		return payload
 	}
 
-	if hasRetransmission {
+	if hasRetransmission {  //除了StreamFrame的重传
 		for {
 			remainingLen := maxFrameSize - payload.length
 			if remainingLen < protocol.MinStreamFrameSize {
@@ -626,7 +629,7 @@ func (p *packetPacker) composeNextPacket(maxFrameSize protocol.ByteCount, onlyAc
 		}
 	}
 
-	if hasData {
+	if hasData {  //有StreamFrame的重传
 		var lengthAdded protocol.ByteCount
 		payload.frames, lengthAdded = p.framer.AppendControlFrames(payload.frames, maxFrameSize-payload.length)
 		payload.length += lengthAdded

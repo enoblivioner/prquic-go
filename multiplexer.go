@@ -66,8 +66,8 @@ func (m *connMultiplexer) AddConn(
 
 	addr := c.LocalAddr()
 	connIndex := addr.Network() + " " + addr.String()
-	p, ok := m.conns[connIndex]
-	if !ok {
+	p, ok := m.conns[connIndex]  //找对应网络地址的连接
+	if !ok {  //如果对应地址没有连接，分配一个新的包管理器
 		manager, err := m.newPacketHandlerManager(c, connIDLen, statelessResetKey, tracer, m.logger)
 		if err != nil {
 			return nil, err

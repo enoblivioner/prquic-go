@@ -52,11 +52,18 @@ func generatePRData(l int) []byte {
 	return res
 }
 
-func setupHandler(www string) http.Handler {
+//统一设置路由处理的函数，也就是输入什么地址，进行相应的操作
+func setupHandler(www string) http.Handler {  
 	mux := http.NewServeMux()
 
-	if len(www) > 0 {
-		mux.Handle("/", http.FileServer(http.Dir(www)))
+	// 假如使用了-www参数且输入了值，则打开www文件目录，进行文件服务
+	// 比如使用 -www dash.js（dash.js应该和服务器代码在同一目录下）时
+	// 用浏览器输入"https://localhost:6121/samples"
+	// 就会自动进入dash.js/samples目录下
+	// 且由于该目录下存在index.html文件，会自行加载该文件
+	// 这是由http.FileServer函数的内在逻辑决定的
+	if len(www) > 0 {  
+		mux.Handle("/", http.FileServer(http.Dir(www)))  
 	} else {
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			fmt.Printf("%#v\n", r)
@@ -70,6 +77,7 @@ func setupHandler(www string) http.Handler {
 		})
 	}
 
+	// 一些可以用于测试的输入地址
 	mux.HandleFunc("/demo/tile", func(w http.ResponseWriter, r *http.Request) {
 		// Small 40x40 png
 		w.Write([]byte{
@@ -141,7 +149,7 @@ func main() {
 	verbose := flag.Bool("v", false, "verbose")
 	bs := binds{}
 	flag.Var(&bs, "bind", "bind to")
-	www := flag.String("www", "", "www data")
+	www := flag.String("www", "", "www data") //默认在dash.js文件目录下提供服务
 	tcp := flag.Bool("tcp", false, "also listen on TCP")
 	enableQlog := flag.Bool("qlog", false, "output a qlog (in the same directory)")
 	flag.Parse()
@@ -158,9 +166,11 @@ func main() {
 	if len(bs) == 0 {
 		bs = binds{"localhost:6121"}
 	}
-
-	handler := setupHandler(*www)
-	quicConf := &quic.Config{}
+	
+	handler := setupHandler(*www)  //统一路由处理函数
+	quicConf := &quic.Config{
+		EnableDatagrams: true,
+	}
 	if *enableQlog {
 		quicConf.Tracer = qlog.NewTracer(func(_ logging.Perspective, connID []byte) io.WriteCloser {
 			filename := fmt.Sprintf("server_%x.qlog", connID)
@@ -172,7 +182,7 @@ func main() {
 			return utils.NewBufferedWriteCloser(bufio.NewWriter(f), f)
 		})
 	}
-
+	
 	var wg sync.WaitGroup
 	wg.Add(len(bs))
 	for _, b := range bs {

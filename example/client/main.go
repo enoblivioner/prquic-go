@@ -28,7 +28,7 @@ func main() {
 	insecure := flag.Bool("insecure", false, "skip certificate verification")
 	enableQlog := flag.Bool("qlog", false, "output a qlog (in the same directory)")
 	flag.Parse()
-	urls := flag.Args()
+	urls := flag.Args()  //要访问的地址，如https://localhost:6121/demo/tiles
 
 	logger := utils.DefaultLogger
 
@@ -55,7 +55,9 @@ func main() {
 	}
 	testdata.AddRootCA(pool)
 
-	var qconf quic.Config
+	var qconf = quic.Config{
+		EnableDatagrams: true,
+	}
 	if *enableQlog {
 		qconf.Tracer = qlog.NewTracer(func(_ logging.Perspective, connID []byte) io.WriteCloser {
 			filename := fmt.Sprintf("client_%x.qlog", connID)

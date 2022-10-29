@@ -21,12 +21,12 @@ func parseDatagramFrame(r *bytes.Reader, _ protocol.VersionNumber) (*DatagramFra
 	}
 
 	f := &DatagramFrame{}
-	f.DataLenPresent = typeByte&0x1 > 0
+	f.DataLenPresent = typeByte&0x1 > 0  //与16进制(0x)按位与，也就是检查最低位是否为1
 
 	var length uint64
 	if f.DataLenPresent {
 		var err error
-		len, err := quicvarint.Read(r)
+		len, err := quicvarint.Read(r)  //读出一个字节
 		if err != nil {
 			return nil, err
 		}
@@ -47,7 +47,7 @@ func parseDatagramFrame(r *bytes.Reader, _ protocol.VersionNumber) (*DatagramFra
 func (f *DatagramFrame) Append(b []byte, _ protocol.VersionNumber) ([]byte, error) {
 	typeByte := uint8(0x30)
 	if f.DataLenPresent {
-		typeByte ^= 0b1
+		typeByte ^= 0b1  //异或
 	}
 	b = append(b, typeByte)
 	if f.DataLenPresent {

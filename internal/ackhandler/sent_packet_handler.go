@@ -288,7 +288,6 @@ func (h *sentPacketHandler) sentPacketImpl(packet *Packet) bool /* is ack-elicit
 
 func (h *sentPacketHandler) ReceivedAck(ack *wire.AckFrame, encLevel protocol.EncryptionLevel, rcvTime time.Time) (bool /* contained 1-RTT packet */, error) {
 	pnSpace := h.getPacketNumberSpace(encLevel)
-
 	largestAcked := ack.LargestAcked()
 	if largestAcked > pnSpace.largestSent {
 		return false, &qerr.TransportError{
@@ -422,9 +421,9 @@ func (h *sentPacketHandler) detectAndRemoveAckedPackets(ack *wire.AckFrame, encL
 			h.lowestNotConfirmedAcked = utils.Max(h.lowestNotConfirmedAcked, p.LargestAcked+1)
 		}
 
-		for _, f := range p.Frames {
+		for _, f := range p.Frames {  
 			if f.OnAcked != nil {
-				f.OnAcked(f.Frame)
+				f.OnAcked(f.Frame)  //对确认的包中的所有帧执行相应函数
 			}
 		}
 		if err := pnSpace.history.Remove(p.PacketNumber); err != nil {
@@ -586,7 +585,7 @@ func (h *sentPacketHandler) detectLostPackets(now time.Time, encLevel protocol.E
 		}
 
 		var packetLost bool
-		if p.SendTime.Before(lostSendTime) {
+		if p.SendTime.Before(lostSendTime) {  //超时丢包
 			packetLost = true
 			if h.logger.Debug() {
 				h.logger.Debugf("\tlost packet %d (time threshold)", p.PacketNumber)
@@ -594,7 +593,7 @@ func (h *sentPacketHandler) detectLostPackets(now time.Time, encLevel protocol.E
 			if h.tracer != nil {
 				h.tracer.LostPacket(p.EncryptionLevel, p.PacketNumber, logging.PacketLossTimeThreshold)
 			}
-		} else if pnSpace.largestAcked >= p.PacketNumber+packetThreshold {
+		} else if pnSpace.largestAcked >= p.PacketNumber+packetThreshold {  //乱序空洞太大丢包
 			packetLost = true
 			if h.logger.Debug() {
 				h.logger.Debugf("\tlost packet %d (reordering threshold)", p.PacketNumber)
@@ -602,7 +601,7 @@ func (h *sentPacketHandler) detectLostPackets(now time.Time, encLevel protocol.E
 			if h.tracer != nil {
 				h.tracer.LostPacket(p.EncryptionLevel, p.PacketNumber, logging.PacketLossReorderingThreshold)
 			}
-		} else if pnSpace.lossTime.IsZero() {
+		} else if pnSpace.lossTime.IsZero() {  
 			// Note: This conditional is only entered once per call
 			lossTime := p.SendTime.Add(lossDelay)
 			if h.logger.Debug() {
@@ -610,7 +609,7 @@ func (h *sentPacketHandler) detectLostPackets(now time.Time, encLevel protocol.E
 			}
 			pnSpace.lossTime = lossTime
 		}
-		if packetLost {
+		if packetLost {  //检查所有包，如果丢了就声明并加入重传队列
 			p = pnSpace.history.DeclareLost(p)
 			// the bytes in flight need to be reduced no matter if the frames in this packet will be retransmitted
 			h.removeFromBytesInFlight(p)
@@ -789,7 +788,7 @@ func (h *sentPacketHandler) queueFramesForRetransmission(p *Packet) {
 		panic("no frames")
 	}
 	for _, f := range p.Frames {
-		f.OnLost(f.Frame)
+		f.OnLost(f.Frame)  //钩子函数，针对不同帧有不同处理，丢失的帧加入重传队列
 	}
 	p.Frames = nil
 }
