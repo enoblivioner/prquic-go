@@ -2,252 +2,184 @@ package wire
 
 import (
 	"bytes"
-	"fmt"
-	"sort"
-	"time"
+	"errors"
 
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/quicvarint"
 )
 
-// 该帧用于通知接收方强制ACK确认
+// 当PR_Stream帧丢失时，根据PR策略决定是否重传，如果不重传该帧，
+// 就将该帧除去所携带的数据(data)，复制到PRAckNotifyFrame，
+// 后者多记录一个data的长度，随后将后者代替PR_Stream帧加入重传队列
+// 当接收方收到这样一个帧时，就知道是PR策略导致不重传，
+// 于是根据该帧记录的流号、偏移、数据长度信息，将该帧改为原来的PR_Stream帧，
+// 只是此时的PR_Stream帧所携带数据全部填0，这就要求PR_Stream帧不能太大。
+// 因为我们想要的是细粒度的丢帧策略。最理想的是视频一帧的画面分多个块，
+// 每一块由一个PR_Stream帧编码，这样当一帧丢失时，该画面仍能正常显示，不影响帧率。
 type PRAckNotifyFrame struct {
-	AckRanges []AckRange // has to be ordered. The highest ACK range goes first, the lowest ACK range goes last
-	DelayTime time.Duration
+	StreamID       protocol.StreamID
+	Offset         protocol.ByteCount
+	PRDataLen      uint64  // 存放不重传的数据的长度
+	Fin            bool
+	DataLenPresent bool
 
-	ECT0, ECT1, ECNCE uint64
+	PTDA byte	// 高位4bits用于存放PTDA
+	P	bool	// probability标志位，基于概率PR
+	T	bool	// times标志位，基于次数PR
+	D	bool	// deadline标志位，基于时限PR
+	A	bool	// 标志位，基于内容优先级PR
+	ptdaC	uint64	// PTDA标志位所代表的PR策略的内容
+
+	fromPool bool
 }
 
-// parseAckFrame reads an ACK frame
 // 得到ACK帧确认的包号范围
-func parsePRAckNotifyFrame(r *bytes.Reader, ackDelayExponent uint8, _ protocol.VersionNumber) (*PRAckNotifyFrame, error) {
-	fmt.Println("parsePRAckNotifyFrame")
-	var frame *PRAckNotifyFrame  // 暂时
-// 	typeByte, err := r.ReadByte()
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	ecn := typeByte&0x1 > 0
+func parsePRAckNotifyFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRAckNotifyFrame, error) {
+	typeByte, err := r.ReadByte()
+	if err != nil {
+		return nil, err
+	}
 
-// 	frame := GetAckFrame()
+	hasOffset := typeByte&0b100 > 0
+	fin := typeByte&0b1 > 0
+	hasDataLen := typeByte&0b10 > 0
 
-// 	la, err := quicvarint.Read(r)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	largestAcked := protocol.PacketNumber(la)
-// 	delay, err := quicvarint.Read(r)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	streamID, err := quicvarint.Read(r)
+	if err != nil {
+		return nil, err
+	}
+	var offset uint64
+	if hasOffset {
+		offset, err = quicvarint.Read(r)
+		if err != nil {
+			return nil, err
+		}
+	}
 
-// 	delayTime := time.Duration(delay*1<<ackDelayExponent) * time.Microsecond
-// 	if delayTime < 0 {
-// 		// If the delay time overflows, set it to the maximum encodable value.
-// 		delayTime = utils.InfDuration
-// 	}
-// 	frame.DelayTime = delayTime
+	var dataLen uint64
+	if hasDataLen {
+		var err error
+		dataLen, err = quicvarint.Read(r)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, errors.New("PRAckNotify error: unknown carried data length to force ack")
+	}
 
-// 	numBlocks, err := quicvarint.Read(r)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	var frame *PRAckNotifyFrame
 
-// 	// read the first ACK range
-// 	ab, err := quicvarint.Read(r)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	ackBlock := protocol.PacketNumber(ab)
-// 	if ackBlock > largestAcked {
-// 		return nil, errors.New("invalid first ACK range")
-// 	}
-// 	smallest := largestAcked - ackBlock
+	// 获取PTDAC的信息
+	frame.PTDA, err = r.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	switch frame.PTDA&0xf0 {
+	case 0x10:  // A
+		frame.A = true
+	case 0x20:  // D
+		frame.D = true
+	case 0x40:  // T
+		frame.T = true
+	case 0x80:  // P
+		frame.P = true
+	}
+	frame.ptdaC, err = quicvarint.Read(r)
+	if err != nil {
+		return nil, err
+	}
 
-// 	// read all the other ACK ranges
-// 	frame.AckRanges = append(frame.AckRanges, AckRange{Smallest: smallest, Largest: largestAcked})
-// 	for i := uint64(0); i < numBlocks; i++ {
-// 		g, err := quicvarint.Read(r)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		gap := protocol.PacketNumber(g)
-// 		if smallest < gap+2 {
-// 			return nil, errInvalidAckRanges
-// 		}
-// 		largest := smallest - gap - 2
+	frame.StreamID = protocol.StreamID(streamID)
+	frame.Offset = protocol.ByteCount(offset)
+	frame.Fin = fin
+	frame.DataLenPresent = hasDataLen
 
-// 		ab, err := quicvarint.Read(r)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		ackBlock := protocol.PacketNumber(ab)
-
-// 		if ackBlock > largest {
-// 			return nil, errInvalidAckRanges
-// 		}
-// 		smallest = largest - ackBlock
-// 		frame.AckRanges = append(frame.AckRanges, AckRange{Smallest: smallest, Largest: largest})
-// 	}
-
-// 	if !frame.validateAckRanges() {
-// 		return nil, errInvalidAckRanges
-// 	}
-
-// 	// parse (and skip) the ECN section
-// 	if ecn {
-// 		for i := 0; i < 3; i++ {
-// 			if _, err := quicvarint.Read(r); err != nil {
-// 				return nil, err
-// 			}
-// 		}
-// 	}
-
+	if dataLen != 0 {
+		frame.PRDataLen = dataLen
+	}
+	
+	if frame.Offset+protocol.ByteCount(frame.PRDataLen) > protocol.MaxByteCount {
+		return nil, errors.New("PRstream data overflows maximum offset")
+	}
 	return frame, nil
 }
 
-// Append appends an ACK frame.
+// Append writes a PRSTREAM frame
 func (f *PRAckNotifyFrame) Append(b []byte, _ protocol.VersionNumber) ([]byte, error) {
-	fmt.Println("PRAckFrame Append")
-// 	hasECN := f.ECT0 > 0 || f.ECT1 > 0 || f.ECNCE > 0
-// 	if hasECN {
-// 		b = append(b, 0b11)
-// 	} else {
-// 		b = append(b, 0b10)
-// 	}
-// 	b = quicvarint.Append(b, uint64(f.LargestAcked()))
-// 	b = quicvarint.Append(b, encodeAckDelay(f.DelayTime))
+	typeByte := byte(0x8)
+	if f.Fin {
+		typeByte ^= 0b1
+	}
+	hasOffset := f.Offset != 0
+	if f.DataLenPresent {
+		typeByte ^= 0b10
+	}
+	if hasOffset {
+		typeByte ^= 0b100
+	}
+	b = append(b, typeByte)
+	b = quicvarint.Append(b, uint64(f.StreamID))
+	if hasOffset {
+		b = quicvarint.Append(b, uint64(f.Offset))
+	}
+	
+	// 假的携带数据长度
+	if f.DataLenPresent {
+		b = quicvarint.Append(b, uint64(f.DataLen()))
+	}
 
-// 	numRanges := f.numEncodableAckRanges()
-// 	b = quicvarint.Append(b, uint64(numRanges-1))
-
-// 	// write the first range
-// 	_, firstRange := f.encodeAckRange(0)
-// 	b = quicvarint.Append(b, firstRange)
-
-// 	// write all the other range
-// 	for i := 1; i < numRanges; i++ {
-// 		gap, len := f.encodeAckRange(i)
-// 		b = quicvarint.Append(b, gap)
-// 		b = quicvarint.Append(b, len)
-// 	}
-
-// 	if hasECN {
-// 		b = quicvarint.Append(b, f.ECT0)
-// 		b = quicvarint.Append(b, f.ECT1)
-// 		b = quicvarint.Append(b, f.ECNCE)
-// 	}
+	//添加存放PTDA信息的字节
+	b = append(b, f.PTDA)  
+	b = append(b, byte(f.ptdaC))
+	
 	return b, nil
 }
 
-// Length of a written frame
-func (f *PRAckNotifyFrame) Length(_ protocol.VersionNumber) protocol.ByteCount {
-	var length protocol.ByteCount = 1  // 暂时 
-	// largestAcked := f.AckRanges[0].Largest
-	// numRanges := f.numEncodableAckRanges()
-
-	// length := 1 + quicvarint.Len(uint64(largestAcked)) + quicvarint.Len(encodeAckDelay(f.DelayTime))
-
-	// length += quicvarint.Len(uint64(numRanges - 1))
-	// lowestInFirstRange := f.AckRanges[0].Smallest
-	// length += quicvarint.Len(uint64(largestAcked - lowestInFirstRange))
-
-	// for i := 1; i < numRanges; i++ {
-	// 	gap, len := f.encodeAckRange(i)
-	// 	length += quicvarint.Len(gap)
-	// 	length += quicvarint.Len(len)
-	// }
-	// if f.ECT0 > 0 || f.ECT1 > 0 || f.ECNCE > 0 {
-	// 	length += quicvarint.Len(f.ECT0)
-	// 	length += quicvarint.Len(f.ECT1)
-	// 	length += quicvarint.Len(f.ECNCE)
-	// }
-	return length
-}
-
-// gets the number of ACK ranges that can be encoded
-// such that the resulting frame is smaller than the maximum ACK frame size
-func (f *PRAckNotifyFrame) numEncodableAckRanges() int {
-	length := 1 + quicvarint.Len(uint64(f.LargestAcked())) + quicvarint.Len(encodeAckDelay(f.DelayTime))
-	length += 2 // assume that the number of ranges will consume 2 bytes
-	for i := 1; i < len(f.AckRanges); i++ {
-		gap, len := f.encodeAckRange(i)
-		rangeLen := quicvarint.Len(gap) + quicvarint.Len(len)
-		if length+rangeLen > protocol.MaxAckFrameSize {
-			// Writing range i would exceed the MaxAckFrameSize.
-			// So encode one range less than that.
-			return i - 1
-		}
-		length += rangeLen
+// Length returns the total length of the PRSTREAM frame
+func (f *PRAckNotifyFrame) Length(version protocol.VersionNumber) protocol.ByteCount {
+	length := 1 + quicvarint.Len(uint64(f.StreamID))
+	if f.Offset != 0 {
+		length += quicvarint.Len(uint64(f.Offset))
 	}
-	return len(f.AckRanges)
-}
-
-func (f *PRAckNotifyFrame) encodeAckRange(i int) (uint64 /* gap */, uint64 /* length */) {
-	if i == 0 {
-		return 0, uint64(f.AckRanges[0].Largest - f.AckRanges[0].Smallest)
+	if f.DataLenPresent {
+		length += quicvarint.Len(uint64(f.DataLen()))
 	}
-	return uint64(f.AckRanges[i-1].Smallest - f.AckRanges[i].Largest - 2),
-		uint64(f.AckRanges[i].Largest - f.AckRanges[i].Smallest)
+	
+	// 还要加上PR字段的开销
+	length ++   // PTDA字节
+	length += quicvarint.Len(uint64(f.ptdaC))
+
+	return length + f.DataLen()
 }
 
-// HasMissingRanges returns if this frame reports any missing packets
-func (f *PRAckNotifyFrame) HasMissingRanges() bool {
-	return len(f.AckRanges) > 1
+// DataLen gives the length of data in bytes
+func (f *PRAckNotifyFrame) DataLen() protocol.ByteCount {
+	return protocol.ByteCount(f.PRDataLen)
 }
 
-func (f *PRAckNotifyFrame) validateAckRanges() bool {
-	if len(f.AckRanges) == 0 {
-		return false
+// MaxDataLen returns the maximum data length
+// If 0 is returned, writing will fail (a STREAM frame must contain at least 1 byte of data).
+func (f *PRAckNotifyFrame) MaxDataLen(maxSize protocol.ByteCount, version protocol.VersionNumber) protocol.ByteCount {
+	headerLen := 1 + quicvarint.Len(uint64(f.StreamID))
+	if f.Offset != 0 {
+		headerLen += quicvarint.Len(uint64(f.Offset))
+	}
+	if f.DataLenPresent {
+		// pretend that the data size will be 1 bytes
+		// if it turns out that varint encoding the length will consume 2 bytes, we need to adjust the data length afterwards
+		headerLen++
+	}
+	if headerLen > maxSize {
+		return 0
 	}
 
-	// check the validity of every single ACK range
-	for _, ackRange := range f.AckRanges {
-		if ackRange.Smallest > ackRange.Largest {
-			return false
-		}
+	// PR字段消耗的头部长度
+	headerLen--
+	headerLen -= quicvarint.Len(uint64(f.ptdaC))
+
+	maxDataLen := maxSize - headerLen
+	if f.DataLenPresent && quicvarint.Len(uint64(maxDataLen)) != 1 {
+		maxDataLen--
 	}
-
-	// check the consistency for ACK with multiple NACK ranges
-	for i, ackRange := range f.AckRanges {
-		if i == 0 {
-			continue
-		}
-		lastAckRange := f.AckRanges[i-1]
-		if lastAckRange.Smallest <= ackRange.Smallest {
-			return false
-		}
-		if lastAckRange.Smallest <= ackRange.Largest+1 {
-			return false
-		}
-	}
-
-	return true
+	return maxDataLen
 }
-
-// LargestAcked is the largest acked packet number
-func (f *PRAckNotifyFrame) LargestAcked() protocol.PacketNumber {
-	return f.AckRanges[0].Largest
-}
-
-// LowestAcked is the lowest acked packet number
-func (f *PRAckNotifyFrame) LowestAcked() protocol.PacketNumber {
-	return f.AckRanges[len(f.AckRanges)-1].Smallest
-}
-
-// AcksPacket determines if this ACK frame acks a certain packet number
-func (f *PRAckNotifyFrame) AcksPacket(p protocol.PacketNumber) bool {
-	if p < f.LowestAcked() || p > f.LargestAcked() {
-		return false
-	}
-
-	i := sort.Search(len(f.AckRanges), func(i int) bool {
-		return p >= f.AckRanges[i].Smallest
-	})
-	// i will always be < len(f.AckRanges), since we checked above that p is not bigger than the largest acked
-	return p <= f.AckRanges[i].Largest
-}
-
-// func encodeAckDelay(delay time.Duration) uint64 {
-// 	return uint64(delay.Nanoseconds() / (1000 * (1 << protocol.AckDelayExponent)))
-// }

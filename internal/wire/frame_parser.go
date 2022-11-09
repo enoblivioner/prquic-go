@@ -66,8 +66,10 @@ func (p *frameParser) parseFrame(r *bytes.Reader, typeByte byte, encLevel protoc
 	var err error
 	if typeByte&0xf8 == 0x8 {
 		frame, err = parseStreamFrame(r, p.version)
-	} else if typeByte&0xf8 == 0x48{  //0x48..0x4f是PR_STREAM帧
+	} else if typeByte&0xf8 == 0x48 {  //0x48..0x4f是PR_STREAM帧
 		frame, err = parsePRStreamFrame(r, p.version) // 添加PRStreamFrame类型及处理
+	} else if typeByte&0xf8 == 0x58 {  //0x58..0x5f是PR_AckNotify帧
+		frame, err = parsePRAckNotifyFrame(r, p.version)
 	} else {
 		switch typeByte {
 		case 0x1:
@@ -112,19 +114,13 @@ func (p *frameParser) parseFrame(r *bytes.Reader, typeByte byte, encLevel protoc
 			frame, err = parseHandshakeDoneFrame(r, p.version)
 
 		// RFC9000:此注册表中的永久注册项遵循（[RFC8126]第4.6节）规约策略进行分配，但0x00和0x3f（十六进制）之间的值除外
-		// 0x50 51 52/53 分别为新增的PR_Ack、PR_AcK_Notify、PR_Datagram帧
+		// 0x50 52/53 分别为新增的PR_Ack、PR_Datagram帧
 		case 0x50:
 			ackDelayExponent := p.ackDelayExponent
 			if encLevel != protocol.Encryption1RTT {
 				ackDelayExponent = protocol.DefaultAckDelayExponent
 			}
 			frame, err = parsePRAckFrame(r, ackDelayExponent, p.version)
-		case 0x51:
-			ackDelayExponent := p.ackDelayExponent
-			if encLevel != protocol.Encryption1RTT {
-				ackDelayExponent = protocol.DefaultAckDelayExponent
-			}
-			frame, err = parsePRAckNotifyFrame(r, ackDelayExponent, p.version)
 		case 0x52, 0x53:
             if p.supportsDatagrams {
 				frame, err = parsePRDatagramFrame(r, p.version)
