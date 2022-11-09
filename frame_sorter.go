@@ -58,10 +58,10 @@ func (s *frameSorter) push(data []byte, offset protocol.ByteCount, doneCb func()
 		return errDuplicateStreamData
 	}
 
-	startGap, startsInGap := s.findStartGap(start)
-	endGap, endsInGap := s.findEndGap(startGap, end)
+	startGap, startsInGap := s.findStartGap(start)  // 如果startsInGap为true，则start在startGap里，否则在Gap之前
+	endGap, endsInGap := s.findEndGap(startGap, end)  // 如果endsInGap为true，则end在startGap里，否则在Gap之后
 
-	startGapEqualsEndGap := startGap == endGap
+	startGapEqualsEndGap := startGap == endGap  
 
 	if (startGapEqualsEndGap && end <= startGap.Value.Start) ||
 		(!startGapEqualsEndGap && startGap.Value.End >= endGap.Value.Start && end <= startGap.Value.Start) {

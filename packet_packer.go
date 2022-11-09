@@ -90,6 +90,7 @@ func (p *packetContents) ToAckHandlerPacket(now time.Time, q *retransmissionQueu
 	}
 	encLevel := p.EncryptionLevel()
 	for i := range p.frames {
+		// 因为Stream帧有自己的重传队列，所以如果检测到帧已有OnLost()方法，那应该就是Stream帧，就跳过设置OnLost()
 		if p.frames[i].OnLost != nil {
 			continue
 		}
@@ -629,7 +630,7 @@ func (p *packetPacker) composeNextPacket(maxFrameSize protocol.ByteCount, onlyAc
 		}
 	}
 
-	if hasData {  //有StreamFrame的重传
+	if hasData {  //包括StreamFrame的重传
 		var lengthAdded protocol.ByteCount
 		payload.frames, lengthAdded = p.framer.AppendControlFrames(payload.frames, maxFrameSize-payload.length)
 		payload.length += lengthAdded

@@ -274,7 +274,8 @@ func (s *Server) serveConn(tlsConf *tls.Config, conn net.PacketConn) error {
 		if addr == "" {
 			addr = ":https"
 		}
-		//ln其实是一个baseServer，即http3.Server调用了baseServer进行握手监听
+		// ln其实是一个baseServer，即http3.Server调用了baseServer进行握手监听
+		// 创建quic连接并让连接运行
 		ln, err = quicListenAddr(addr, baseConf, quicConf) 
 	} else {
 		ln, err = quicListen(conn, baseConf, quicConf)
@@ -285,7 +286,7 @@ func (s *Server) serveConn(tlsConf *tls.Config, conn net.PacketConn) error {
 	if err := s.addListener(&ln); err != nil {
 		return err
 	}
-	err = s.serveListener(ln)
+	err = s.serveListener(ln)  // 在连接运行的基础上，根据请求发送数据
 	s.removeListener(&ln)
 	return err
 }
@@ -597,6 +598,7 @@ func (s *Server) handleRequest(conn quic.Connection, str quic.Stream, decoder *q
 		r.WriteHeader(200)
 	}
 	// If the EOF was read by the handler, CancelRead() is a no-op.
+	// 处理对端的请求时读取流中的数据
 	str.CancelRead(quic.StreamErrorCode(errorNoError))
 	return requestError{}
 }

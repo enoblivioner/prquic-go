@@ -601,7 +601,7 @@ func (h *sentPacketHandler) detectLostPackets(now time.Time, encLevel protocol.E
 			if h.tracer != nil {
 				h.tracer.LostPacket(p.EncryptionLevel, p.PacketNumber, logging.PacketLossReorderingThreshold)
 			}
-		} else if pnSpace.lossTime.IsZero() {  
+		} else if pnSpace.lossTime.IsZero() {  // 初始化时候用一次，设定第一次的超时丢包时间
 			// Note: This conditional is only entered once per call
 			lossTime := p.SendTime.Add(lossDelay)
 			if h.logger.Debug() {
@@ -624,7 +624,7 @@ func (h *sentPacketHandler) detectLostPackets(now time.Time, encLevel protocol.E
 
 func (h *sentPacketHandler) OnLossDetectionTimeout() error {
 	defer h.setLossDetectionTimer()
-	earliestLossTime, encLevel := h.getLossTimeAndSpace()
+	earliestLossTime, encLevel := h.getLossTimeAndSpace()  // 获取最早的丢包时间和包的编码空间
 	if !earliestLossTime.IsZero() {
 		if h.logger.Debug() {
 			h.logger.Debugf("Loss detection alarm fired in loss timer mode. Loss time: %s", earliestLossTime)
@@ -633,7 +633,7 @@ func (h *sentPacketHandler) OnLossDetectionTimeout() error {
 			h.tracer.LossTimerExpired(logging.TimerTypeACK, encLevel)
 		}
 		// Early retransmit or time loss detection
-		return h.detectLostPackets(time.Now(), encLevel)
+		return h.detectLostPackets(time.Now(), encLevel)  // 假如之前确实有丢包就找
 	}
 
 	// PTO
@@ -788,7 +788,7 @@ func (h *sentPacketHandler) queueFramesForRetransmission(p *Packet) {
 		panic("no frames")
 	}
 	for _, f := range p.Frames {
-		f.OnLost(f.Frame)  //钩子函数，针对不同帧有不同处理，丢失的帧加入重传队列
+		f.OnLost(f.Frame)  //执行钩子函数，针对不同帧有不同处理，丢失的帧加入重传队列
 	}
 	p.Frames = nil
 }

@@ -58,6 +58,7 @@ func AEADAESGCMTLS13(key, fixedNonce []byte) cipher.AEAD {
 }
 
 // Client returns a new TLS client side connection.
+// 返回TLS客户端侧的连接
 func Client(conn net.Conn, config *Config, extraConfig *ExtraConfig) *Conn {
 	return qtls.Client(conn, config, extraConfig)
 }

@@ -66,7 +66,7 @@ func (p *pacer) TimeUntilSend() time.Time {
 	if p.budgetAtLastSent >= p.maxDatagramSize {
 		return time.Time{}
 	}
-	return p.lastSentTime.Add(utils.Max(
+	return p.lastSentTime.Add(utils.Max(  //上次发送的时间加预估所需的传输时间
 		protocol.MinPacingDelay,
 		time.Duration(math.Ceil(float64(p.maxDatagramSize-p.budgetAtLastSent)*1e9/float64(p.getAdjustedBandwidth())))*time.Nanosecond,
 	))

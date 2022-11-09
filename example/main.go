@@ -149,7 +149,7 @@ func main() {
 	verbose := flag.Bool("v", false, "verbose")
 	bs := binds{}
 	flag.Var(&bs, "bind", "bind to")
-	www := flag.String("www", "", "www data") //默认在dash.js文件目录下提供服务
+	www := flag.String("www", "dash.js", "www data") //默认在dash.js文件目录下提供服务
 	tcp := flag.Bool("tcp", false, "also listen on TCP")
 	enableQlog := flag.Bool("qlog", false, "output a qlog (in the same directory)")
 	flag.Parse()

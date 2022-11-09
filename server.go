@@ -191,7 +191,6 @@ func listen(conn net.PacketConn, tlsConf *tls.Config, config *Config, acceptEarl
 			return nil, fmt.Errorf("%s is not a valid QUIC version", v)
 		}
 	}
-	//getMultiplexer()会监听并接收udp连接上的数据
 	connHandler, err := getMultiplexer().AddConn(conn, config.ConnectionIDGenerator.ConnectionIDLen(), config.StatelessResetKey, config.Tracer)
 	if err != nil {
 		return nil, err
@@ -214,7 +213,7 @@ func listen(conn net.PacketConn, tlsConf *tls.Config, config *Config, acceptEarl
 		errorChan:        make(chan struct{}),
 		running:          make(chan struct{}),
 		receivedPackets:  make(chan *receivedPacket, protocol.MaxServerUnprocessedPackets),
-		newConn:          newConnection,
+		newConn:          newConnection,  //将baseServer s的newConn函数定义为newConnection函数，即客户端用于创建quicConn的函数
 		logger:           utils.DefaultLogger.WithPrefix("server"),
 		acceptEarlyConns: acceptEarly,
 	}
@@ -499,7 +498,7 @@ func (s *baseServer) handleInitialImpl(p *receivedPacket, hdr *wire.Header) erro
 				connID,
 			)
 		}
-		conn = s.newConn(  //连接迁移？
+		conn = s.newConn(  //实际是调用了newConnection函数创建客户端的quicConn
 			newSendConn(s.conn, p.remoteAddr, p.info),
 			s.connHandler,
 			origDestConnID,  
@@ -518,7 +517,7 @@ func (s *baseServer) handleInitialImpl(p *receivedPacket, hdr *wire.Header) erro
 			s.logger,
 			hdr.Version,
 		)
-		conn.handlePacket(p) //将数据p挂载到conn上
+		conn.handlePacket(p) //将数据p本来是从服务器上收到的，现在挂载到quicConn conn上
 		return conn
 	}); !added {
 		return nil

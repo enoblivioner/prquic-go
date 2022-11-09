@@ -21,6 +21,7 @@ type SentPacketHandler interface {
 	SendMode() SendMode
 	// TimeUntilSend is the time when the next packet should be sent.
 	// It is used for pacing packets.
+	// 由拥塞控制决定
 	TimeUntilSend() time.Time
 	// HasPacingBudget says if the pacer allows sending of a (full size) packet at this moment.
 	HasPacingBudget() bool

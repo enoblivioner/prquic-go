@@ -349,6 +349,7 @@ func (c *client) doRequest(req *http.Request, str quic.Stream, opt RoundTripOpt,
 	if req.Body == nil && !opt.DontCloseRequestStream {
 		str.Close()
 	}
+	//使用hstr读取和写入http/3的数据帧
 	hstr := newStream(str, func() { c.conn.CloseWithError(quic.ApplicationErrorCode(errorFrameUnexpected), "") })
 	if req.Body != nil {
 		// send the request body asynchronously
@@ -402,8 +403,8 @@ func (c *client) doRequest(req *http.Request, str quic.Stream, opt RoundTripOpt,
 			res.Header.Add(hf.Name, hf.Value)
 		}
 	}
-	respBody := newResponseBody(hstr, c.conn, reqDone)
-
+	respBody := newResponseBody(hstr, c.conn, reqDone)  //此时resBody已有内容
+	
 	// Rules for when to set Content-Length are defined in https://tools.ietf.org/html/rfc7230#section-3.3.2.
 	_, hasTransferEncoding := res.Header["Transfer-Encoding"]
 	isInformational := res.StatusCode >= 100 && res.StatusCode < 200
@@ -417,7 +418,7 @@ func (c *client) doRequest(req *http.Request, str quic.Stream, opt RoundTripOpt,
 			}
 		}
 	}
-
+	
 	if requestGzip && res.Header.Get("Content-Encoding") == "gzip" {
 		res.Header.Del("Content-Encoding")
 		res.Header.Del("Content-Length")

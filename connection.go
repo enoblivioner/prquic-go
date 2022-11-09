@@ -324,7 +324,7 @@ var newConnection = func(
 	if s.tracer != nil {
 		s.tracer.SentTransportParameters(params)
 	}
-	cs := handshake.NewCryptoSetupServer(
+	cs := handshake.NewCryptoSetupServer(  //发生了tls握手，cs.conn是tls连接
 		initialStream,
 		handshakeStream,
 		clientDestConnID,
@@ -452,6 +452,7 @@ var newClientConnection = func(
 	if s.tracer != nil {
 		s.tracer.SentTransportParameters(params)
 	}
+	//handshake.NewCryptoSetupClient，执行这一步发生了tls握手
 	cs, clientHelloWritten := handshake.NewCryptoSetupClient(
 		initialStream,
 		handshakeStream,
@@ -556,7 +557,7 @@ func (s *connection) run() error {
 		s.cryptoStreamHandler.RunHandshake()
 	}()
 
-	//发送包
+	//发送包的协程一直开启，要发送包只需要放到sendQueue里
 	go func() {
 		if err := s.sendQueue.Run(); err != nil {
 			s.destroyImpl(err)
@@ -666,7 +667,7 @@ runLoop:
 		}
 
 		now := time.Now()
-		//假如超时
+		//检测超时导致的包丢失
 		if timeout := s.sentPacketHandler.GetLossDetectionTimeout(); !timeout.IsZero() && timeout.Before(now) {
 			// This could cause packets to be retransmitted.
 			// Check it before trying to send packets.
@@ -1329,6 +1330,16 @@ func (s *connection) handleFrame(f wire.Frame, encLevel protocol.EncryptionLevel
 	var err error
 	wire.LogFrame(s.logger, f, false)
 	switch frame := f.(type) {
+	case *wire.PRAckFrame:
+		// err = s.handlePRAckFrame(frame, encLevel)
+		// wire.PutPRAckFrame(frame)
+	case *wire.PRAckNotifyFrame:
+		// err = s.handlePRAckNotifyFrame(frame, encLevel)
+		// wire.PutPRAckNotifyFrame(frame)
+	case *wire.PRDatagramFrame:
+		// err = s.handleDatagramFrame(frame)
+	case *wire.PRStreamFrame:
+		// err = s.handlePRStreamFrame(frame)
 	case *wire.CryptoFrame:
 		err = s.handleCryptoFrame(frame, encLevel)
 	case *wire.StreamFrame:
@@ -1757,16 +1768,17 @@ func (s *connection) applyTransportParameters() {
 }
 
 func (s *connection) sendPackets() error {
-	s.pacingDeadline = time.Time{}  //定义下一个包应该发送的时间
+	s.pacingDeadline = time.Time{}  
 	var sentPacket bool // only used in for packets sent in send mode SendAny
 	for {
-		sendMode := s.sentPacketHandler.SendMode()  //sendMode决定了能被发送的包的类别
+		sendMode := s.sentPacketHandler.SendMode()  //sendMode()获取当前可以发送的包类型
 		if sendMode == ackhandler.SendAny && s.handshakeComplete && !s.sentPacketHandler.HasPacingBudget() {
 			deadline := s.sentPacketHandler.TimeUntilSend()
 			if deadline.IsZero() {
 				deadline = deadlineSendImmediately
 			}
 			s.pacingDeadline = deadline
+			// 只接收包的一方对于cwnd估计不准，因此即便限制发送也应允许Ack的发送。
 			// Allow sending of an ACK if we're pacing limit (if we haven't sent out a packet yet).
 			// This makes sure that a peer that is mostly receiving data (and thus has an inaccurate cwnd estimate)
 			// sends enough ACKs to allow its peer to utilize the bandwidth.
@@ -1787,7 +1799,7 @@ func (s *connection) sendPackets() error {
 			}
 			// We can at most send a single ACK only packet.
 			// There will only be a new ACK after receiving new packets.
-			// SendAck is only returned when we're congestion limited, so we don't need to set the pacingt timer.
+			// SendAck is only returned when we're congestion limited, so we don't need to set the pacing timer.
 			return s.maybeSendAckOnlyPacket()
 		case ackhandler.SendPTOInitial:
 			if err := s.sendProbePacket(protocol.EncryptionInitial); err != nil {
@@ -1834,7 +1846,7 @@ func (s *connection) maybeSendAckOnlyPacket() error {
 		for _, p := range packet.packets {
 			s.sentPacketHandler.SentPacket(p.ToAckHandlerPacket(time.Now(), s.retransmissionQueue))
 		}
-		s.connIDManager.SentPacket()
+		s.connIDManager.SentPacket()  // 当前conn在得到发送权后发送的包数
 		s.sendQueue.Send(packet.buffer)
 		return nil
 	}

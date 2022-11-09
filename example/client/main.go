@@ -25,10 +25,13 @@ func main() {
 	verbose := flag.Bool("v", false, "verbose")
 	quiet := flag.Bool("q", false, "don't print the data")
 	keyLogFile := flag.String("keylog", "", "key log file")
+	// 当访问其他主机时若出现x509: cannot validate certificate because of not containing any IP SANs
+	// 开启 -insecure
 	insecure := flag.Bool("insecure", false, "skip certificate verification")
 	enableQlog := flag.Bool("qlog", false, "output a qlog (in the same directory)")
 	flag.Parse()
 	urls := flag.Args()  //要访问的地址，如https://localhost:6121/demo/tiles
+	urls = append(urls, "https://124.71.17.227:6121/demo/tiles")
 
 	logger := utils.DefaultLogger
 
