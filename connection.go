@@ -1330,16 +1330,16 @@ func (s *connection) handleFrame(f wire.Frame, encLevel protocol.EncryptionLevel
 	var err error
 	wire.LogFrame(s.logger, f, false)
 	switch frame := f.(type) {
+	case *wire.PRStreamFrame:  //如果正常接收到PRStream帧，其实就和普通Stream帧一样
+		err = s.handlePRStreamFrame(frame)
+	case *wire.PRAckNotifyFrame:
+		err = s.handlePRAckNotifyFrame(frame)
+		// wire.PutPRAckNotifyFrame(frame)
 	case *wire.PRAckFrame:
 		// err = s.handlePRAckFrame(frame, encLevel)
 		// wire.PutPRAckFrame(frame)
-	case *wire.PRAckNotifyFrame:
-		// err = s.handlePRAckNotifyFrame(frame, encLevel)
-		// wire.PutPRAckNotifyFrame(frame)
 	case *wire.PRDatagramFrame:
 		// err = s.handleDatagramFrame(frame)
-	case *wire.PRStreamFrame:
-		// err = s.handlePRStreamFrame(frame)
 	case *wire.CryptoFrame:
 		err = s.handleCryptoFrame(frame, encLevel)
 	case *wire.StreamFrame:
@@ -1425,6 +1425,34 @@ func (s *connection) handleCryptoFrame(frame *wire.CryptoFrame, encLevel protoco
 		s.undecryptablePackets = nil
 	}
 	return nil
+}
+
+//接收方收到PRAckNotifyFrame，转换成StreamFrame，其data填0，实现强制确认
+func (s *connection) handlePRAckNotifyFrame(frame *wire.PRAckNotifyFrame) error {
+	sf := wire.StreamFrame{
+		StreamID: frame.StreamID,
+		Offset: frame.Offset,
+		Data: make([]byte, frame.DataLen()),  //填0,
+		Fin: frame.Fin,
+		DataLenPresent: frame.DataLenPresent,
+		// fromPool: frame.fromPool,  // 不知道为啥报错：没有这个field
+	}
+	err := s.handleStreamFrame(&sf)
+	return err
+}
+
+//接收方收到PRStreamFrame，转换成StreamFrame，正常处理
+func (s *connection) handlePRStreamFrame(frame *wire.PRStreamFrame) error {
+	sf := wire.StreamFrame{
+		StreamID: frame.StreamID,
+		Offset: frame.Offset,
+		Data: frame.Data,
+		Fin: frame.Fin,
+		DataLenPresent: frame.DataLenPresent,
+		// fromPool: frame.fromPool,  // 不知道为啥报错：没有这个field
+	}
+	err := s.handleStreamFrame(&sf)
+	return err
 }
 
 func (s *connection) handleStreamFrame(frame *wire.StreamFrame) error {

@@ -16,7 +16,7 @@ type PRStreamFrame struct {
 	Data           []byte
 	Fin            bool
 	DataLenPresent bool
-
+	
 	PTDA byte	// 高位4bits用于存放PTDA
 	P	bool	// probability标志位，基于概率PR
 	T	bool	// times标志位，基于次数PR
