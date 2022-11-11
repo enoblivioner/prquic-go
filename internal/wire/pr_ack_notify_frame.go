@@ -70,7 +70,7 @@ func parsePRAckNotifyFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRAckNot
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var offset uint64
 	if hasOffset {
 		offset, err = quicvarint.Read(r)
@@ -89,8 +89,6 @@ func parsePRAckNotifyFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRAckNot
 	} else {
 		return nil, errors.New("PRAckNotify error: unknown carried data length to force ack")
 	}
-
-	
 
 	frame.StreamID = protocol.StreamID(streamID)
 	frame.Offset = protocol.ByteCount(offset)
@@ -122,6 +120,11 @@ func (f *PRAckNotifyFrame) Append(b []byte, _ protocol.VersionNumber) ([]byte, e
 	}
 	b = append(b, typeByte)
 	b = quicvarint.Append(b, uint64(f.StreamID))
+
+	//添加存放PTDA信息的字节
+	b = append(b, f.PTDA)  
+	b = append(b, byte(f.PtdaC))
+
 	if hasOffset {
 		b = quicvarint.Append(b, uint64(f.Offset))
 	}
@@ -130,10 +133,6 @@ func (f *PRAckNotifyFrame) Append(b []byte, _ protocol.VersionNumber) ([]byte, e
 	if f.DataLenPresent {
 		b = quicvarint.Append(b, uint64(f.DataLen()))
 	}
-
-	//添加存放PTDA信息的字节
-	b = append(b, f.PTDA)  
-	b = append(b, byte(f.PtdaC))
 	
 	return b, nil
 }

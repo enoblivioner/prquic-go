@@ -3,6 +3,7 @@ package quic
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -28,6 +29,7 @@ type sendStream struct {
 
 	numOutstandingFrames int64
 	retransmissionQueue  []*wire.StreamFrame
+	prAckNotifyRetransmissionQueue []*wire.PRAckNotifyFrame
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -255,7 +257,7 @@ func (s *sendStream) popStreamFrame(maxBytes protocol.ByteCount) (*ackhandler.Fr
 			fmt.Println("PR Policy wrong!")
 		}
 		// 改变返回的帧，以及OnLost()与OnAcked()方法
-		return &ackhandler.Frame{Frame: prf, OnLost: s.prqueueRetransmission, OnAcked: s.prStreamframeAcked}, hasMoreData
+		return &ackhandler.Frame{Frame: prf, OnLost: s.prQueueRetransmission, OnAcked: s.prStreamframeAcked}, hasMoreData
 	}
 
 	return &ackhandler.Frame{Frame: f, OnLost: s.queueRetransmission, OnAcked: s.frameAcked}, hasMoreData
@@ -462,15 +464,69 @@ func (s *sendStream) queueRetransmission(f wire.Frame) {
 }
 
 // queueRetransmission()方法的PR化
-func (s *sendStream) prqueueRetransmission(f wire.Frame) {
-	sf := wire.StreamFrame{
-		StreamID: f.(*wire.PRStreamFrame).StreamID,
-		Offset: f.(*wire.PRStreamFrame).Offset,
-		Data: f.(*wire.PRStreamFrame).Data,
-		Fin: f.(*wire.PRStreamFrame).Fin,
-		DataLenPresent: f.(*wire.PRStreamFrame).DataLenPresent,
+// PR策略：首先选择四种策略之一，进行重传判定，如果重传则将PR_stream转为Stream帧放入Stream重传队列
+// 如果不重传，则放一个PR_Ack_Notify帧到重传队列
+func (s *sendStream) prQueueRetransmission(f wire.Frame) {
+	frame := f.(*wire.PRStreamFrame)
+
+	pr_retran_enabled := false
+	switch frame.PtdaC {
+	case 0x80: // 概率重传策略,生成0-10000的随机值，ptdaC>它则PR重传，小于则正常重传
+		pC :=  int(frame.PtdaC)
+		rand.Seed(time.Now().Unix())
+		retran_threshold := rand.Intn(10000)
+		if pC > int(retran_threshold) {
+			pr_retran_enabled = true
+		}
+	case 0x40:
+	case 0x20:
+	case 0x10:
 	}
-	s.queueRetransmission(&sf)
+	
+	if !pr_retran_enabled {  // 正常重传
+		sf := wire.StreamFrame{
+			StreamID: frame.StreamID,
+			Offset: frame.Offset,
+			Data: frame.Data,
+			Fin: frame.Fin,
+			DataLenPresent: frame.DataLenPresent,
+		}
+		s.queueRetransmission(&sf)
+	} else {
+		prAckNf := wire.PRAckNotifyFrame {
+			StreamID: frame.StreamID,
+			Offset: frame.Offset,
+			PRDataLen: uint64(frame.DataLen()),
+			Fin: frame.Fin,
+			DataLenPresent: frame.DataLenPresent,
+			PTDA: frame.PTDA,
+			P: frame.P,
+			T: frame.T,
+			D: frame.D,
+			A: frame.A,
+			PtdaC: frame.PtdaC,
+		}
+		s.prAckNotifyQueueRetransmission(&prAckNf)
+	}
+	
+}
+
+func (s *sendStream) prAckNotifyQueueRetransmission (f wire.Frame){
+	prAckNf := f.(*wire.PRAckNotifyFrame)
+	prAckNf.DataLenPresent = true
+	s.mutex.Lock()
+	if s.canceledWrite {
+		s.mutex.Unlock()
+		return
+	}
+	s.prAckNotifyRetransmissionQueue = append(s.prAckNotifyRetransmissionQueue, prAckNf)
+	s.numOutstandingFrames--
+	if s.numOutstandingFrames < 0 {
+		panic("numOutStandingFrames negative")
+	}
+	s.mutex.Unlock()
+
+	s.sender.onHasStreamData(s.streamID)
 }
 
 func (s *sendStream) Close() error {
