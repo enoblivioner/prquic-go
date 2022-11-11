@@ -2,12 +2,15 @@ package main
 
 import (
 	"fmt"
+
+	"github.com/lucas-clemente/quic-go/internal/protocol"
+	"github.com/lucas-clemente/quic-go/internal/wire"
 )
 
 func main() {
-	s := make([]byte, 10)
-	s1 := make([]byte, 2)
-	fmt.Printf("s: %v\n", s)
-	fmt.Printf("s1: %v\n", s1)
+	f1 := *wire.GetPRStreamFrame()
+	f2 := wire.GetStreamFrame()
+	fmt.Printf("f1: %v\n", f1.Length(protocol.Version1))
+	fmt.Printf("f2: %v\n", f2.Length(protocol.Version1))
 }
 

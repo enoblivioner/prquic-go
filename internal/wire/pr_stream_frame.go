@@ -22,7 +22,7 @@ type PRStreamFrame struct {
 	T	bool	// times标志位，基于次数PR
 	D	bool	// deadline标志位，基于时限PR
 	A	bool	// 标志位，基于内容优先级PR
-	ptdaC	uint64	// PTDA标志位所代表的PR策略的内容
+	PtdaC	uint64	// PTDA标志位所代表的PR策略的内容
 
 	fromPool bool
 }
@@ -41,6 +41,31 @@ func parsePRStreamFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRStreamFra
 	if err != nil {
 		return nil, err
 	}
+
+	// 获取PtdaC的信息
+	var P bool
+	var T bool
+	var D bool
+	var A bool
+	PTDA, err := r.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	switch PTDA&0xf0 {
+	case 0x10:  // A
+		A = true
+	case 0x20:  // D
+		D = true
+	case 0x40:  // T
+		T = true
+	case 0x80:  // P
+		P = true
+	}
+	PtdaC, err := quicvarint.Read(r)
+	if err != nil {
+		return nil, err
+	}
+
 	var offset uint64
 	if hasOffset {
 		offset, err = quicvarint.Read(r)
@@ -63,26 +88,6 @@ func parsePRStreamFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRStreamFra
 
 	var frame *PRStreamFrame
 
-	// 获取PTDAC的信息
-	frame.PTDA, err = r.ReadByte()
-	if err != nil {
-		return nil, err
-	}
-	switch frame.PTDA&0xf0 {
-	case 0x10:  // A
-		frame.A = true
-	case 0x20:  // D
-		frame.D = true
-	case 0x40:  // T
-		frame.T = true
-	case 0x80:  // P
-		frame.P = true
-	}
-	frame.ptdaC, err = quicvarint.Read(r)
-	if err != nil {
-		return nil, err
-	}
-
 	if dataLen < protocol.MinStreamFrameBufferSize {
 		frame = &PRStreamFrame{Data: make([]byte, dataLen)}
 	} else {
@@ -99,6 +104,12 @@ func parsePRStreamFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRStreamFra
 	frame.Offset = protocol.ByteCount(offset)
 	frame.Fin = fin
 	frame.DataLenPresent = hasDataLen
+	frame.P = P
+	frame.T = T
+	frame.D = D
+	frame.A = A
+	frame.PTDA = PTDA
+	frame.PtdaC = PtdaC
 
 	if dataLen != 0 {
 		if _, err := io.ReadFull(r, frame.Data); err != nil {
@@ -117,7 +128,7 @@ func (f *PRStreamFrame) Append(b []byte, _ protocol.VersionNumber) ([]byte, erro
 		return nil, errors.New("StreamFrame: attempting to write empty frame without FIN")
 	}
 
-	typeByte := byte(0x8)
+	typeByte := byte(0x48)
 	if f.Fin {
 		typeByte ^= 0b1
 	}
@@ -130,16 +141,17 @@ func (f *PRStreamFrame) Append(b []byte, _ protocol.VersionNumber) ([]byte, erro
 	}
 	b = append(b, typeByte)
 	b = quicvarint.Append(b, uint64(f.StreamID))
+
+	//添加存放PTDA信息的字节
+	b = append(b, f.PTDA)  
+	b = quicvarint.Append(b, uint64(f.PtdaC))
+
 	if hasOffset {
 		b = quicvarint.Append(b, uint64(f.Offset))
 	}
 	if f.DataLenPresent {
 		b = quicvarint.Append(b, uint64(f.DataLen()))
 	}
-
-	//添加存放PTDA信息的字节
-	b = append(b, f.PTDA)  
-	b = append(b, byte(f.ptdaC))
 
 	b = append(b, f.Data...)
 	return b, nil
@@ -157,7 +169,7 @@ func (f *PRStreamFrame) Length(version protocol.VersionNumber) protocol.ByteCoun
 	
 	// 还要加上PR字段的开销
 	length ++   // PTDA字节
-	length += quicvarint.Len(uint64(f.ptdaC))
+	length += quicvarint.Len(uint64(f.PtdaC))
 
 	return length + f.DataLen()
 }
@@ -185,7 +197,7 @@ func (f *PRStreamFrame) MaxDataLen(maxSize protocol.ByteCount, version protocol.
 
 	// PR字段消耗的头部长度
 	headerLen--
-	headerLen -= quicvarint.Len(uint64(f.ptdaC))
+	headerLen -= quicvarint.Len(uint64(f.PtdaC))
 
 	maxDataLen := maxSize - headerLen
 	if f.DataLenPresent && quicvarint.Len(uint64(maxDataLen)) != 1 {
@@ -221,7 +233,7 @@ func (f *PRStreamFrame) MaybeSplitOffFrame(maxSize protocol.ByteCount, version p
 	new.T = f.T
 	new.D = f.D
 	new.A = f.A
-	new.ptdaC = f.ptdaC
+	new.PtdaC = f.PtdaC
 
 	// swap the data slices
 	new.Data, f.Data = f.Data, new.Data

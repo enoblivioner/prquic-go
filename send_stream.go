@@ -86,6 +86,7 @@ func (s *sendStream) StreamID() protocol.StreamID {
 }
 
 func (s *sendStream) Write(p []byte) (int, error) {
+
 	// Concurrent use of Write is not permitted (and doesn't make any sense),
 	// but sometimes people do it anyway.
 	// Make sure that we only execute one call at any given time to avoid hard to debug failures.
@@ -128,8 +129,9 @@ func (s *sendStream) Write(p []byte) (int, error) {
 		// allowing us to set the FIN bit on that frame (instead of sending an empty STREAM frame with FIN).
 		// FIN bit在Stream Frame的首字节（Type字节）的第二bit位，置为1时表示发送结束
 		if s.canBufferStreamFrame() && len(s.dataForWriting) > 0 {
+			// 空的话就直接添加，不空就加载nextFrame.Data中
 			if s.nextFrame == nil {
-				f := wire.GetStreamFrame()
+				f := wire.GetStreamFrame()  //只是生成一个空的StreamFrame
 				f.Offset = s.writeOffset
 				f.StreamID = s.streamID
 				f.DataLenPresent = true
@@ -210,7 +212,14 @@ func (s *sendStream) canBufferStreamFrame() bool {
 // maxBytes is the maximum length this frame (including frame header) will have.
 func (s *sendStream) popStreamFrame(maxBytes protocol.ByteCount) (*ackhandler.Frame, bool /* has more data to send */) {
 	s.mutex.Lock()
-	f, hasMoreData := s.popNewOrRetransmittedStreamFrame(maxBytes)
+
+	pr_maxBytes := maxBytes
+	if PR_ENABLED {
+		pr_maxBytes = maxBytes - (1 + 8)  // pr字段的开销，后面一个8也可能是4或2或1，根据PtdaC的内容而不同，这里保守写8，可以更精确识别
+	}
+	
+	f, hasMoreData := s.popNewOrRetransmittedStreamFrame(pr_maxBytes)
+	
 	if f != nil {
 		s.numOutstandingFrames++
 	}
@@ -219,6 +228,36 @@ func (s *sendStream) popStreamFrame(maxBytes protocol.ByteCount) (*ackhandler.Fr
 	if f == nil {
 		return nil, hasMoreData
 	}
+
+	// 假如采用PR策略：
+	if PR_ENABLED {
+		// 将Stream帧转为PRStream帧
+		prf := &wire.PRStreamFrame{
+			StreamID: f.StreamID,
+			Offset: f.Offset,
+			Data: f.Data,
+			Fin: f.Fin,
+			DataLenPresent: f.DataLenPresent,
+			PTDA: PTDA,  
+			PtdaC: PtadC,  
+			// fromPool: f.fromPool,  // 首字母小写的结构变量不能在外面用
+		}
+		switch PTDA {
+		case 0x80:
+			prf.P = true
+		case 0x40:
+			prf.T = true
+		case 0x20:
+			prf.D = true
+		case 0x10:
+			prf.A = true
+		default:
+			fmt.Println("PR Policy wrong!")
+		}
+		// 改变返回的帧，以及OnLost()与OnAcked()方法
+		return &ackhandler.Frame{Frame: prf, OnLost: s.prqueueRetransmission, OnAcked: s.prStreamframeAcked}, hasMoreData
+	}
+
 	return &ackhandler.Frame{Frame: f, OnLost: s.queueRetransmission, OnAcked: s.frameAcked}, hasMoreData
 }
 
@@ -374,6 +413,27 @@ func (s *sendStream) frameAcked(f wire.Frame) {
 	}
 }
 
+// frameAcked()方法的PR化
+func (s *sendStream) prStreamframeAcked(f wire.Frame) {
+	f.(*wire.PRStreamFrame).PutBack()
+
+	s.mutex.Lock()
+	if s.canceledWrite {
+		s.mutex.Unlock()
+		return
+	}
+	s.numOutstandingFrames--
+	if s.numOutstandingFrames < 0 {
+		panic("numOutStandingFrames negative")
+	}
+	newlyCompleted := s.isNewlyCompleted()
+	s.mutex.Unlock()
+
+	if newlyCompleted {
+		s.sender.onStreamCompleted(s.streamID)
+	}
+}
+
 func (s *sendStream) isNewlyCompleted() bool {
 	completed := (s.finSent || s.canceledWrite) && s.numOutstandingFrames == 0 && len(s.retransmissionQueue) == 0
 	if completed && !s.completed {
@@ -399,6 +459,18 @@ func (s *sendStream) queueRetransmission(f wire.Frame) {
 	s.mutex.Unlock()
 
 	s.sender.onHasStreamData(s.streamID)
+}
+
+// queueRetransmission()方法的PR化
+func (s *sendStream) prqueueRetransmission(f wire.Frame) {
+	sf := wire.StreamFrame{
+		StreamID: f.(*wire.PRStreamFrame).StreamID,
+		Offset: f.(*wire.PRStreamFrame).Offset,
+		Data: f.(*wire.PRStreamFrame).Data,
+		Fin: f.(*wire.PRStreamFrame).Fin,
+		DataLenPresent: f.(*wire.PRStreamFrame).DataLenPresent,
+	}
+	s.queueRetransmission(&sf)
 }
 
 func (s *sendStream) Close() error {

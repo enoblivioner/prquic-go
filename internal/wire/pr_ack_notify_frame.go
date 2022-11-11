@@ -28,9 +28,9 @@ type PRAckNotifyFrame struct {
 	T	bool	// times标志位，基于次数PR
 	D	bool	// deadline标志位，基于时限PR
 	A	bool	// 标志位，基于内容优先级PR
-	ptdaC	uint64	// PTDA标志位所代表的PR策略的内容
+	PtdaC	uint64	// PTDA标志位所代表的PR策略的内容
 
-	fromPool bool
+	// fromPool bool
 }
 
 // 得到ACK帧确认的包号范围
@@ -48,6 +48,29 @@ func parsePRAckNotifyFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRAckNot
 	if err != nil {
 		return nil, err
 	}
+
+	var frame *PRAckNotifyFrame
+
+	// 获取PtdaC的信息
+	frame.PTDA, err = r.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	switch frame.PTDA&0xf0 {
+	case 0x10:  // A
+		frame.A = true
+	case 0x20:  // D
+		frame.D = true
+	case 0x40:  // T
+		frame.T = true
+	case 0x80:  // P
+		frame.P = true
+	}
+	frame.PtdaC, err = quicvarint.Read(r)
+	if err != nil {
+		return nil, err
+	}
+	
 	var offset uint64
 	if hasOffset {
 		offset, err = quicvarint.Read(r)
@@ -67,27 +90,7 @@ func parsePRAckNotifyFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRAckNot
 		return nil, errors.New("PRAckNotify error: unknown carried data length to force ack")
 	}
 
-	var frame *PRAckNotifyFrame
-
-	// 获取PTDAC的信息
-	frame.PTDA, err = r.ReadByte()
-	if err != nil {
-		return nil, err
-	}
-	switch frame.PTDA&0xf0 {
-	case 0x10:  // A
-		frame.A = true
-	case 0x20:  // D
-		frame.D = true
-	case 0x40:  // T
-		frame.T = true
-	case 0x80:  // P
-		frame.P = true
-	}
-	frame.ptdaC, err = quicvarint.Read(r)
-	if err != nil {
-		return nil, err
-	}
+	
 
 	frame.StreamID = protocol.StreamID(streamID)
 	frame.Offset = protocol.ByteCount(offset)
@@ -130,7 +133,7 @@ func (f *PRAckNotifyFrame) Append(b []byte, _ protocol.VersionNumber) ([]byte, e
 
 	//添加存放PTDA信息的字节
 	b = append(b, f.PTDA)  
-	b = append(b, byte(f.ptdaC))
+	b = append(b, byte(f.PtdaC))
 	
 	return b, nil
 }
@@ -147,7 +150,7 @@ func (f *PRAckNotifyFrame) Length(version protocol.VersionNumber) protocol.ByteC
 	
 	// 还要加上PR字段的开销
 	length ++   // PTDA字节
-	length += quicvarint.Len(uint64(f.ptdaC))
+	length += quicvarint.Len(uint64(f.PtdaC))
 
 	return length + f.DataLen()
 }
@@ -175,7 +178,7 @@ func (f *PRAckNotifyFrame) MaxDataLen(maxSize protocol.ByteCount, version protoc
 
 	// PR字段消耗的头部长度
 	headerLen--
-	headerLen -= quicvarint.Len(uint64(f.ptdaC))
+	headerLen -= quicvarint.Len(uint64(f.PtdaC))
 
 	maxDataLen := maxSize - headerLen
 	if f.DataLenPresent && quicvarint.Len(uint64(maxDataLen)) != 1 {

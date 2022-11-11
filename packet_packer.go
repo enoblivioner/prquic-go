@@ -779,7 +779,7 @@ func (p *packetPacker) appendPacket(buffer *packetBuffer, header *wire.ExtendedH
 	}
 	for _, frame := range payload.frames {
 		var err error
-		raw, err = frame.Append(raw, p.version)
+		raw, err = frame.Append(raw, p.version)  // 调用frame自己的组装方法append，以字节形式装到raw上
 		if err != nil {
 			return nil, err
 		}

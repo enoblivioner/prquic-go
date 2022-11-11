@@ -77,7 +77,7 @@ func DialAddrEarlyContext(
 	tlsConf *tls.Config,
 	config *Config,
 ) (EarlyConnection, error) {
-	conn, err := dialAddrContext(ctx, addr, tlsConf, config, true)
+	conn, err := dialAddrContext(ctx, addr, tlsConf, config, true)  // 握手应该也已经完成
 	if err != nil {
 		return nil, err
 	}
@@ -211,6 +211,7 @@ func dialContext(
 	if c.tracer != nil {
 		c.tracer.StartedConnection(c.sconn.LocalAddr(), c.sconn.RemoteAddr(), c.srcConnID, c.destConnID)
 	}
+	//该方法即给c创建了quicConn
 	if err := c.dial(ctx); err != nil {
 		return nil, err
 	}

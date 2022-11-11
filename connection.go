@@ -1329,6 +1329,7 @@ func (s *connection) handleFrames(
 func (s *connection) handleFrame(f wire.Frame, encLevel protocol.EncryptionLevel, destConnID protocol.ConnectionID) error {
 	var err error
 	wire.LogFrame(s.logger, f, false)
+	fmt.Printf("f: %T\n", f)
 	switch frame := f.(type) {
 	case *wire.PRStreamFrame:  //如果正常接收到PRStream帧，其实就和普通Stream帧一样
 		err = s.handlePRStreamFrame(frame)
@@ -1449,7 +1450,7 @@ func (s *connection) handlePRStreamFrame(frame *wire.PRStreamFrame) error {
 		Data: frame.Data,
 		Fin: frame.Fin,
 		DataLenPresent: frame.DataLenPresent,
-		// fromPool: frame.fromPool,  // 不知道为啥报错：没有这个field
+		// fromPool: frame.fromPool,  // 首字母小写在外部不能调用
 	}
 	err := s.handleStreamFrame(&sf)
 	return err

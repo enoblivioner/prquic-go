@@ -18,7 +18,7 @@ type PRDatagramFrame struct {
 	T	bool	// times标志位，基于次数PR
 	D	bool	// deadline标志位，基于时限PR
 	A	bool	// 标志位，基于内容优先级PR
-	ptdaC	uint64	// PTDA标志位所代表的PR策略的内容
+	PtdaC	uint64	// PTDA标志位所代表的PR策略的内容
 }
 
 func parsePRDatagramFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRDatagramFrame, error) {
@@ -45,7 +45,7 @@ func parsePRDatagramFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRDatagra
 		length = uint64(r.Len())
 	}
 
-	// 获取PTDAC的信息
+	// 获取PtdaC的信息
 	f.PTDA, err = r.ReadByte()
 	if err != nil {
 		return nil, err
@@ -60,7 +60,7 @@ func parsePRDatagramFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRDatagra
 	case 0x80:  // P
 		f.P = true
 	}
-	f.ptdaC, err = quicvarint.Read(r)
+	f.PtdaC, err = quicvarint.Read(r)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func parsePRDatagramFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRDatagra
 	return f, nil
 }
 
-// 按照type length PTDA ptdaC data顺序组装帧
+// 按照type length PTDA PtdaC data顺序组装帧
 func (f *PRDatagramFrame) Append(b []byte, _ protocol.VersionNumber) ([]byte, error) {
 	typeByte := uint8(0x52)
 	if f.DataLenPresent {
@@ -85,7 +85,7 @@ func (f *PRDatagramFrame) Append(b []byte, _ protocol.VersionNumber) ([]byte, er
 
 	//添加存放PTDA信息的字节
 	b = append(b, f.PTDA)  
-	b = append(b, byte(f.ptdaC))
+	b = append(b, byte(f.PtdaC))
 	
 	b = append(b, f.Data...)
 	return b, nil

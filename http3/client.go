@@ -108,7 +108,7 @@ func (c *client) dial(ctx context.Context) error {
 	if c.dialer != nil {
 		c.conn, err = c.dialer(ctx, c.hostname, c.tlsConf, c.config)
 	} else {
-		c.conn, err = dialAddr(ctx, c.hostname, c.tlsConf, c.config)
+		c.conn, err = dialAddr(ctx, c.hostname, c.tlsConf, c.config)  // 完成握手的quicConn
 	}
 	if err != nil {
 		return err
@@ -244,7 +244,7 @@ func (c *client) RoundTripOpt(req *http.Request, opt RoundTripOpt) (*http.Respon
 	}
 
 	c.dialOnce.Do(func() {
-		c.handshakeErr = c.dial(req.Context())
+		c.handshakeErr = c.dial(req.Context())  //完成握手、quicConn的创建、控制信息的互相传输
 	})
 
 	if c.handshakeErr != nil {
@@ -342,6 +342,7 @@ func (c *client) doRequest(req *http.Request, str quic.Stream, opt RoundTripOpt,
 	if !c.opts.DisableCompression && req.Method != "HEAD" && req.Header.Get("Accept-Encoding") == "" && req.Header.Get("Range") == "" {
 		requestGzip = true
 	}
+	// 用str传输请求头
 	if err := c.requestWriter.WriteRequestHeader(str, req, requestGzip); err != nil {
 		return nil, newStreamError(errorInternalError, err)
 	}
@@ -349,7 +350,7 @@ func (c *client) doRequest(req *http.Request, str quic.Stream, opt RoundTripOpt,
 	if req.Body == nil && !opt.DontCloseRequestStream {
 		str.Close()
 	}
-	//使用hstr读取和写入http/3的数据帧
+	// 创建hstr结构体，读取和写入http/3的数据帧
 	hstr := newStream(str, func() { c.conn.CloseWithError(quic.ApplicationErrorCode(errorFrameUnexpected), "") })
 	if req.Body != nil {
 		// send the request body asynchronously
@@ -403,7 +404,7 @@ func (c *client) doRequest(req *http.Request, str quic.Stream, opt RoundTripOpt,
 			res.Header.Add(hf.Name, hf.Value)
 		}
 	}
-	respBody := newResponseBody(hstr, c.conn, reqDone)  //此时resBody已有内容
+	respBody := newResponseBody(hstr, c.conn, reqDone)  
 	
 	// Rules for when to set Content-Length are defined in https://tools.ietf.org/html/rfc7230#section-3.3.2.
 	_, hasTransferEncoding := res.Header["Transfer-Encoding"]
