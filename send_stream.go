@@ -29,7 +29,6 @@ type sendStream struct {
 
 	numOutstandingFrames int64
 	retransmissionQueue  []*wire.StreamFrame
-	prAckNotifyRetransmissionQueue []*wire.PRAckNotifyFrame
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -212,12 +211,14 @@ func (s *sendStream) canBufferStreamFrame() bool {
 
 // popStreamFrame returns the next STREAM frame that is supposed to be sent on this stream
 // maxBytes is the maximum length this frame (including frame header) will have.
+// 如果队列中有PRAckNotify帧的话，先取出来
 func (s *sendStream) popStreamFrame(maxBytes protocol.ByteCount) (*ackhandler.Frame, bool /* has more data to send */) {
 	s.mutex.Lock()
 
 	pr_maxBytes := maxBytes
+
 	if PR_ENABLED {
-		pr_maxBytes = maxBytes - (1 + 8)  // pr字段的开销，后面一个8也可能是4或2或1，根据PtdaC的内容而不同，这里保守写8，可以更精确识别
+		pr_maxBytes = maxBytes - (1 + 8)   
 	}
 	
 	f, hasMoreData := s.popNewOrRetransmittedStreamFrame(pr_maxBytes)
@@ -262,6 +263,7 @@ func (s *sendStream) popStreamFrame(maxBytes protocol.ByteCount) (*ackhandler.Fr
 
 	return &ackhandler.Frame{Frame: f, OnLost: s.queueRetransmission, OnAcked: s.frameAcked}, hasMoreData
 }
+
 
 func (s *sendStream) popNewOrRetransmittedStreamFrame(maxBytes protocol.ByteCount) (*wire.StreamFrame, bool /* has more data to send */) {
 	if s.canceledWrite || s.closeForShutdownErr != nil {
@@ -463,9 +465,11 @@ func (s *sendStream) queueRetransmission(f wire.Frame) {
 	s.sender.onHasStreamData(s.streamID)
 }
 
-// queueRetransmission()方法的PR化
-// PR策略：首先选择四种策略之一，进行重传判定，如果重传则将PR_stream转为Stream帧放入Stream重传队列
-// 如果不重传，则放一个PR_Ack_Notify帧到重传队列
+// queueRetransmission()方法的PR化。
+// PR策略：首先选择四种策略之一，进行重传判定，如果重传则将PR_stream转为Stream帧放入Stream重传队列。
+// 如果不重传，则放一个PR_Ack_Notify帧到重传队列。
+// 由于用sendStream重传PRAckNotify帧比较麻烦，所以如果丢了先存到PRAckNotifyFrames中，
+// 随后给另一个packethandler的重传队列读取
 func (s *sendStream) prQueueRetransmission(f wire.Frame) {
 	frame := f.(*wire.PRStreamFrame)
 
@@ -506,27 +510,8 @@ func (s *sendStream) prQueueRetransmission(f wire.Frame) {
 			A: frame.A,
 			PtdaC: frame.PtdaC,
 		}
-		s.prAckNotifyQueueRetransmission(&prAckNf)
+		PRAckNotifyFrames = append(PRAckNotifyFrames, &prAckNf)
 	}
-	
-}
-
-func (s *sendStream) prAckNotifyQueueRetransmission (f wire.Frame){
-	prAckNf := f.(*wire.PRAckNotifyFrame)
-	prAckNf.DataLenPresent = true
-	s.mutex.Lock()
-	if s.canceledWrite {
-		s.mutex.Unlock()
-		return
-	}
-	s.prAckNotifyRetransmissionQueue = append(s.prAckNotifyRetransmissionQueue, prAckNf)
-	s.numOutstandingFrames--
-	if s.numOutstandingFrames < 0 {
-		panic("numOutStandingFrames negative")
-	}
-	s.mutex.Unlock()
-
-	s.sender.onHasStreamData(s.streamID)
 }
 
 func (s *sendStream) Close() error {

@@ -581,8 +581,16 @@ func (p *packetPacker) composeNextPacket(maxFrameSize protocol.ByteCount, onlyAc
 		return &payload{}
 	}
 
+	// 把PRAckNotify Frame从PRAckNotifyFrames中放到retransmissionQueue中
+	// 因为sendStream中的重传队列只能存Stream帧
+	if len(PRAckNotifyFrames) > 0 {
+		for _, f := range(PRAckNotifyFrames) {
+			p.retransmissionQueue.AddAppData(f)
+			PRAckNotifyFrames = PRAckNotifyFrames[1:]
+		}
+		
+	}
 	payload := &payload{frames: make([]ackhandler.Frame, 0, 1)}
-
 	hasData := p.framer.HasData()
 	hasRetransmission := p.retransmissionQueue.HasAppData()
 

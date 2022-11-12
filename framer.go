@@ -97,7 +97,8 @@ func (f *framerI) AddActiveStream(id protocol.StreamID) {
 	f.mutex.Unlock()
 }
 
-//轮流从各个流中取出一帧放到ackhandler.Frame中
+// 轮流从各个流中取出一帧放到第一个[]ackhandler.Frame中
+// 第二个用来存放PRAckNotify帧
 func (f *framerI) AppendStreamFrames(frames []ackhandler.Frame, maxLen protocol.ByteCount) ([]ackhandler.Frame, protocol.ByteCount) {
 	var length protocol.ByteCount
 	var lastFrame *ackhandler.Frame
@@ -131,6 +132,7 @@ func (f *framerI) AppendStreamFrames(frames []ackhandler.Frame, maxLen protocol.
 		} else { // no more data to send. Stream is not active any more
 			delete(f.activeStreams, id)
 		}
+
 		// The frame can be nil
 		// * if the receiveStream was canceled after it said it had data
 		// * the remaining size doesn't allow us to add another STREAM frame

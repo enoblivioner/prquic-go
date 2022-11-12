@@ -100,12 +100,12 @@ func parsePRAckNotifyFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRAckNot
 	}
 	
 	if frame.Offset+protocol.ByteCount(frame.PRDataLen) > protocol.MaxByteCount {
-		return nil, errors.New("PRstream data overflows maximum offset")
+		return nil, errors.New("PRAckNotifyFrame data overflows maximum offset")
 	}
 	return frame, nil
 }
 
-// Append writes a PRSTREAM frame
+// Append writes a PRAckNotify frame
 func (f *PRAckNotifyFrame) Append(b []byte, _ protocol.VersionNumber) ([]byte, error) {
 	typeByte := byte(0x8)
 	if f.Fin {
@@ -130,9 +130,7 @@ func (f *PRAckNotifyFrame) Append(b []byte, _ protocol.VersionNumber) ([]byte, e
 	}
 	
 	// 假的携带数据长度
-	if f.DataLenPresent {
-		b = quicvarint.Append(b, uint64(f.DataLen()))
-	}
+	b = quicvarint.Append(b, uint64(f.DataLen()))
 	
 	return b, nil
 }

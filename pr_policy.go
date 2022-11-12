@@ -1,5 +1,7 @@
 package quic
 
+import "github.com/lucas-clemente/quic-go/internal/wire"
+
 // 1
 // 是否启用PR行为
 var PR_ENABLED bool = true
@@ -51,3 +53,7 @@ var PR_ERROR error
 // var PTDA byte = 0x10 // PTDA的字节存储
 // var PtadC uint64   // 存放PR策略选项对应的内容/值  
 // var PR_ERROR error
+
+// 存sendStream.prAckNotifyRetransmissionQueue中的PRAckNotify Frame
+// 供packetContents.retransmissionQueue获取
+var PRAckNotifyFrames []wire.Frame
