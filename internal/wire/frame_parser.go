@@ -66,9 +66,9 @@ func (p *frameParser) parseFrame(r *bytes.Reader, typeByte byte, encLevel protoc
 	var err error
 	if typeByte&0xf8 == 0x8 {
 		frame, err = parseStreamFrame(r, p.version)
-	} else if typeByte&0xf8 == 0x48 {  //0x48..0x4f是PR_STREAM帧
+	} else if typeByte&0xf8 == 0x48 { //0x48..0x4f是PR_STREAM帧
 		frame, err = parsePRStreamFrame(r, p.version) // 添加PRStreamFrame类型及处理
-	} else if typeByte&0xf8 == 0x58 {  //0x58..0x5f是PR_AckNotify帧
+	} else if typeByte&0xf8 == 0x58 { //0x58..0x5f是PR_AckNotify帧
 		frame, err = parsePRAckNotifyFrame(r, p.version)
 	} else {
 		switch typeByte {
@@ -122,13 +122,13 @@ func (p *frameParser) parseFrame(r *bytes.Reader, typeByte byte, encLevel protoc
 			}
 			frame, err = parsePRAckFrame(r, ackDelayExponent, p.version)
 		case 0x52, 0x53:
-            if p.supportsDatagrams {
+			if p.supportsDatagrams {
 				frame, err = parsePRDatagramFrame(r, p.version)
 				break
 			} else {
-                err = errors.New("unknown frame type")
-            }
-			
+				err = errors.New("unknown frame type")
+			}
+
 		case 0x30, 0x31:
 			if p.supportsDatagrams {
 				frame, err = parseDatagramFrame(r, p.version)

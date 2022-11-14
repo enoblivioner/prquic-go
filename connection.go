@@ -324,7 +324,7 @@ var newConnection = func(
 	if s.tracer != nil {
 		s.tracer.SentTransportParameters(params)
 	}
-	cs := handshake.NewCryptoSetupServer(  //发生了tls握手，cs.conn是tls连接
+	cs := handshake.NewCryptoSetupServer( //发生了tls握手，cs.conn是tls连接
 		initialStream,
 		handshakeStream,
 		clientDestConnID,
@@ -533,6 +533,7 @@ func (s *connection) preSetup() {
 		s.version,
 	)
 	s.framer = newFramer(s.streamsMap, s.version)
+	pr_version = s.version // for PR Policy
 	s.receivedPackets = make(chan *receivedPacket, protocol.MaxConnUnprocessedPackets)
 	s.closeChan = make(chan closeError, 1)
 	s.sendingScheduled = make(chan struct{}, 1)
@@ -597,7 +598,7 @@ runLoop:
 		s.maybeResetTimer()
 
 		var processedUndecryptablePacket bool
-		if len(s.undecryptablePacketsToProcess) > 0 {  //执行example中脚本时不进入该语句
+		if len(s.undecryptablePacketsToProcess) > 0 { //执行example中脚本时不进入该语句
 			queue := s.undecryptablePacketsToProcess
 			s.undecryptablePacketsToProcess = nil
 			for _, p := range queue {
@@ -613,7 +614,7 @@ runLoop:
 			}
 		}
 		// If we processed any undecryptable packets, jump to the resetting of the timers directly.
-		if !processedUndecryptablePacket {  //执行example中脚本时会进入该语句
+		if !processedUndecryptablePacket { //执行example中脚本时会进入该语句
 			select {
 			case closeErr = <-s.closeChan:
 				break runLoop
@@ -708,7 +709,7 @@ runLoop:
 			sendQueueAvailable = nil
 		}
 	}
-	
+
 	s.cryptoStreamHandler.Close()
 	<-handshaking
 	s.handleCloseError(&closeErr)
@@ -846,7 +847,7 @@ func (s *connection) handleHandshakeConfirmed() {
 }
 
 func (s *connection) handlePacketImpl(rp *receivedPacket) bool {
-	s.sentPacketHandler.ReceivedBytes(rp.Size())  //增加收到的字节数记录
+	s.sentPacketHandler.ReceivedBytes(rp.Size()) //增加收到的字节数记录
 
 	if wire.IsVersionNegotiationPacket(rp.data) {
 		s.handleVersionNegotiationPacket(rp)
@@ -1290,6 +1291,8 @@ func (s *connection) handleFrames(
 	var frames []wire.Frame
 	for len(data) > 0 {
 		l, frame, err := s.frameParser.ParseNext(data, encLevel)
+		fmt.Printf("f: %T\n", frame)
+		Frames_recv_num++
 		if err != nil {
 			return false, err
 		}
@@ -1329,13 +1332,11 @@ func (s *connection) handleFrames(
 func (s *connection) handleFrame(f wire.Frame, encLevel protocol.EncryptionLevel, destConnID protocol.ConnectionID) error {
 	var err error
 	wire.LogFrame(s.logger, f, false)
-	fmt.Printf("f: %T\n", f)
 	switch frame := f.(type) {
-	case *wire.PRStreamFrame:  //如果正常接收到PRStream帧，其实就和普通Stream帧一样
+	case *wire.PRStreamFrame: //如果正常接收到PRStream帧，其实就和普通Stream帧一样
 		err = s.handlePRStreamFrame(frame)
 	case *wire.PRAckNotifyFrame:
 		err = s.handlePRAckNotifyFrame(frame)
-		// wire.PutPRAckNotifyFrame(frame)
 	case *wire.PRAckFrame:
 		// err = s.handlePRAckFrame(frame, encLevel)
 		// wire.PutPRAckFrame(frame)
@@ -1428,13 +1429,13 @@ func (s *connection) handleCryptoFrame(frame *wire.CryptoFrame, encLevel protoco
 	return nil
 }
 
-//接收方收到PRAckNotifyFrame，转换成StreamFrame，其data填0，实现强制确认
+// 接收方收到PRAckNotifyFrame，转换成StreamFrame，其data填0，实现强制确认
 func (s *connection) handlePRAckNotifyFrame(frame *wire.PRAckNotifyFrame) error {
 	sf := wire.StreamFrame{
-		StreamID: frame.StreamID,
-		Offset: frame.Offset,
-		Data: make([]byte, frame.DataLen()),  //填0,
-		Fin: frame.Fin,
+		StreamID:       frame.StreamID,
+		Offset:         frame.Offset,
+		Data:           make([]byte, frame.DataLen()), //填0,
+		Fin:            frame.Fin,
 		DataLenPresent: frame.DataLenPresent,
 		// fromPool: frame.fromPool,  // 不知道为啥报错：没有这个field
 	}
@@ -1442,13 +1443,13 @@ func (s *connection) handlePRAckNotifyFrame(frame *wire.PRAckNotifyFrame) error 
 	return err
 }
 
-//接收方收到PRStreamFrame，转换成StreamFrame，正常处理
+// 接收方收到PRStreamFrame，转换成StreamFrame，正常处理
 func (s *connection) handlePRStreamFrame(frame *wire.PRStreamFrame) error {
 	sf := wire.StreamFrame{
-		StreamID: frame.StreamID,
-		Offset: frame.Offset,
-		Data: frame.Data,
-		Fin: frame.Fin,
+		StreamID:       frame.StreamID,
+		Offset:         frame.Offset,
+		Data:           frame.Data,
+		Fin:            frame.Fin,
 		DataLenPresent: frame.DataLenPresent,
 		// fromPool: frame.fromPool,  // 首字母小写在外部不能调用
 	}
@@ -1797,10 +1798,10 @@ func (s *connection) applyTransportParameters() {
 }
 
 func (s *connection) sendPackets() error {
-	s.pacingDeadline = time.Time{}  
+	s.pacingDeadline = time.Time{}
 	var sentPacket bool // only used in for packets sent in send mode SendAny
 	for {
-		sendMode := s.sentPacketHandler.SendMode()  //sendMode()获取当前可以发送的包类型
+		sendMode := s.sentPacketHandler.SendMode() //sendMode()获取当前可以发送的包类型
 		if sendMode == ackhandler.SendAny && s.handshakeComplete && !s.sentPacketHandler.HasPacingBudget() {
 			deadline := s.sentPacketHandler.TimeUntilSend()
 			if deadline.IsZero() {
@@ -1875,7 +1876,7 @@ func (s *connection) maybeSendAckOnlyPacket() error {
 		for _, p := range packet.packets {
 			s.sentPacketHandler.SentPacket(p.ToAckHandlerPacket(time.Now(), s.retransmissionQueue))
 		}
-		s.connIDManager.SentPacket()  // 当前conn在得到发送权后发送的包数
+		s.connIDManager.SentPacket() // 当前conn在得到发送权后发送的包数
 		s.sendQueue.Send(packet.buffer)
 		return nil
 	}

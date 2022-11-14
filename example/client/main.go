@@ -30,8 +30,9 @@ func main() {
 	insecure := flag.Bool("insecure", false, "skip certificate verification")
 	enableQlog := flag.Bool("qlog", false, "output a qlog (in the same directory)")
 	flag.Parse()
-	urls := flag.Args()  //要访问的地址，如https://localhost:6121/demo/tiles
-	urls = append(urls, "https://124.71.17.227:6121/demo/tiles")
+	urls := flag.Args() //要访问的地址，如https://localhost:6121/demo/tiles
+	// urls = append(urls, "https://124.71.17.227:6121/demo/tiles")
+	urls = append(urls, "https://10.0.0.1:6121/demo/tiles")
 
 	logger := utils.DefaultLogger
 
@@ -111,4 +112,5 @@ func main() {
 		}(addr)
 	}
 	wg.Wait()
+	fmt.Printf("quic.Frames_recv_num: %v\n", quic.Frames_recv_num)
 }

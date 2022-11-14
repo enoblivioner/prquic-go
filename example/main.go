@@ -52,8 +52,8 @@ func generatePRData(l int) []byte {
 	return res
 }
 
-//统一设置路由处理的函数，也就是输入什么地址，进行相应的操作
-func setupHandler(www string) http.Handler {  
+// 统一设置路由处理的函数，也就是输入什么地址，进行相应的操作
+func setupHandler(www string) http.Handler {
 	mux := http.NewServeMux()
 
 	// 假如使用了-www参数且输入了值，则打开www文件目录，进行文件服务
@@ -62,8 +62,8 @@ func setupHandler(www string) http.Handler {
 	// 就会自动进入dash.js/samples目录下
 	// 且由于该目录下存在index.html文件，会自行加载该文件
 	// 这是由http.FileServer函数的内在逻辑决定的
-	if len(www) > 0 {  
-		mux.Handle("/", http.FileServer(http.Dir(www)))  
+	if len(www) > 0 {
+		mux.Handle("/", http.FileServer(http.Dir(www)))
 	} else {
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			fmt.Printf("%#v\n", r)
@@ -93,7 +93,7 @@ func setupHandler(www string) http.Handler {
 
 	mux.HandleFunc("/demo/tiles", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "<html><head><style>img{width:40px;height:40px;}</style></head><body>")
-		for i := 0; i < 200; i++ {
+		for i := 0; i < 100; i++ {
 			fmt.Fprintf(w, `<img src="/demo/tile?cachebust=%d">`, i)
 		}
 		io.WriteString(w, "</body></html>")
@@ -164,10 +164,10 @@ func main() {
 	logger.SetLogTimeFormat("")
 
 	if len(bs) == 0 {
-		bs = binds{"localhost:6121"}
+		bs = binds{"0.0.0.0:6121"}
 	}
-	
-	handler := setupHandler(*www)  //统一路由处理函数
+
+	handler := setupHandler(*www) //统一路由处理函数
 	quicConf := &quic.Config{
 		EnableDatagrams: true,
 	}
@@ -182,7 +182,7 @@ func main() {
 			return utils.NewBufferedWriteCloser(bufio.NewWriter(f), f)
 		})
 	}
-	
+
 	var wg sync.WaitGroup
 	wg.Add(len(bs))
 	for _, b := range bs {

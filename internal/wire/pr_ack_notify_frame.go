@@ -2,7 +2,6 @@ package wire
 
 import (
 	"bytes"
-	"errors"
 
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/quicvarint"
@@ -19,27 +18,25 @@ import (
 type PRAckNotifyFrame struct {
 	StreamID       protocol.StreamID
 	Offset         protocol.ByteCount
-	PRDataLen      uint64  // 存放不重传的数据的长度
+	PRDataLen      uint64 // 存放不重传的数据的长度
 	Fin            bool
 	DataLenPresent bool
 
-	PTDA byte	// 高位4bits用于存放PTDA
-	P	bool	// probability标志位，基于概率PR
-	T	bool	// times标志位，基于次数PR
-	D	bool	// deadline标志位，基于时限PR
-	A	bool	// 标志位，基于内容优先级PR
-	PtdaC	uint64	// PTDA标志位所代表的PR策略的内容
+	PTDA  byte   // 高位4bits用于存放PTDA
+	P     bool   // probability标志位，基于概率PR
+	T     bool   // times标志位，基于次数PR
+	D     bool   // deadline标志位，基于时限PR
+	A     bool   // 标志位，基于内容优先级PR
+	PtdaC uint64 // PTDA标志位所代表的PR策略的内容
 
 	// fromPool bool
 }
 
-// 得到ACK帧确认的包号范围
 func parsePRAckNotifyFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRAckNotifyFrame, error) {
 	typeByte, err := r.ReadByte()
 	if err != nil {
 		return nil, err
 	}
-
 	hasOffset := typeByte&0b100 > 0
 	fin := typeByte&0b1 > 0
 	hasDataLen := typeByte&0b10 > 0
@@ -49,24 +46,26 @@ func parsePRAckNotifyFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRAckNot
 		return nil, err
 	}
 
-	var frame *PRAckNotifyFrame
-
 	// 获取PtdaC的信息
-	frame.PTDA, err = r.ReadByte()
+	var P bool
+	var T bool
+	var D bool
+	var A bool
+	PTDA, err := r.ReadByte()
 	if err != nil {
 		return nil, err
 	}
-	switch frame.PTDA&0xf0 {
-	case 0x10:  // A
-		frame.A = true
-	case 0x20:  // D
-		frame.D = true
-	case 0x40:  // T
-		frame.T = true
-	case 0x80:  // P
-		frame.P = true
+	switch PTDA & 0xf0 {
+	case 0x10: // A
+		A = true
+	case 0x20: // D
+		D = true
+	case 0x40: // T
+		T = true
+	case 0x80: // P
+		P = true
 	}
-	frame.PtdaC, err = quicvarint.Read(r)
+	PtdaC, err := quicvarint.Read(r)
 	if err != nil {
 		return nil, err
 	}
@@ -80,34 +79,34 @@ func parsePRAckNotifyFrame(r *bytes.Reader, _ protocol.VersionNumber) (*PRAckNot
 	}
 
 	var dataLen uint64
-	if hasDataLen {
-		var err error
-		dataLen, err = quicvarint.Read(r)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		return nil, errors.New("PRAckNotify error: unknown carried data length to force ack")
+
+	dataLen, err = quicvarint.Read(r)
+	if err != nil {
+		return nil, err
 	}
 
-	frame.StreamID = protocol.StreamID(streamID)
-	frame.Offset = protocol.ByteCount(offset)
-	frame.Fin = fin
-	frame.DataLenPresent = hasDataLen
+	// var frame *PRAckNotifyFrame  // need initial, otherwise wrong
 
-	if dataLen != 0 {
-		frame.PRDataLen = dataLen
+	frame := &PRAckNotifyFrame{
+		StreamID:       protocol.StreamID(streamID),
+		Offset:         protocol.ByteCount(offset),
+		Fin:            fin,
+		DataLenPresent: hasDataLen,
+		P:              P,
+		T:              T,
+		D:              D,
+		A:              A,
+		PTDA:           PTDA,
+		PtdaC:          PtdaC,
+		PRDataLen:      dataLen,
 	}
-	
-	if frame.Offset+protocol.ByteCount(frame.PRDataLen) > protocol.MaxByteCount {
-		return nil, errors.New("PRAckNotifyFrame data overflows maximum offset")
-	}
+
 	return frame, nil
 }
 
 // Append writes a PRAckNotify frame
 func (f *PRAckNotifyFrame) Append(b []byte, _ protocol.VersionNumber) ([]byte, error) {
-	typeByte := byte(0x8)
+	typeByte := byte(0x58)
 	if f.Fin {
 		typeByte ^= 0b1
 	}
@@ -118,20 +117,20 @@ func (f *PRAckNotifyFrame) Append(b []byte, _ protocol.VersionNumber) ([]byte, e
 	if hasOffset {
 		typeByte ^= 0b100
 	}
-	b = append(b, typeByte)
-	b = quicvarint.Append(b, uint64(f.StreamID))
+	b = append(b, typeByte)                      // 1. type
+	b = quicvarint.Append(b, uint64(f.StreamID)) // 2. StreamID
 
 	//添加存放PTDA信息的字节
-	b = append(b, f.PTDA)  
-	b = append(b, byte(f.PtdaC))
+	b = append(b, f.PTDA)                     // 3. PTDA
+	b = quicvarint.Append(b, uint64(f.PtdaC)) // 4.PtdaC
 
 	if hasOffset {
-		b = quicvarint.Append(b, uint64(f.Offset))
+		b = quicvarint.Append(b, uint64(f.Offset)) // 5. Offset
 	}
-	
+
 	// 假的携带数据长度
-	b = quicvarint.Append(b, uint64(f.DataLen()))
-	
+	b = quicvarint.Append(b, uint64(f.PRDataLen)) // 6. PRDataLen
+
 	return b, nil
 }
 
@@ -141,15 +140,16 @@ func (f *PRAckNotifyFrame) Length(version protocol.VersionNumber) protocol.ByteC
 	if f.Offset != 0 {
 		length += quicvarint.Len(uint64(f.Offset))
 	}
-	if f.DataLenPresent {
-		length += quicvarint.Len(uint64(f.DataLen()))
-	}
-	
+	// if f.DataLenPresent {
+	// 	length += quicvarint.Len(uint64(f.DataLen()))
+	// }
+	length += quicvarint.Len(uint64(f.DataLen())) // PRDataLen
+
 	// 还要加上PR字段的开销
-	length ++   // PTDA字节
+	length++ // PTDA字节
 	length += quicvarint.Len(uint64(f.PtdaC))
 
-	return length + f.DataLen()
+	return length
 }
 
 // DataLen gives the length of data in bytes

@@ -59,7 +59,7 @@ type coalescedPacket struct {
 	packets []*packetContents
 }
 
-//检查packetContents是三种加密等级中的哪种
+// 检查packetContents是三种加密等级中的哪种
 func (p *packetContents) EncryptionLevel() protocol.EncryptionLevel {
 	if !p.header.IsLongHeader {
 		return protocol.Encryption1RTT
@@ -77,12 +77,12 @@ func (p *packetContents) EncryptionLevel() protocol.EncryptionLevel {
 	}
 }
 
-//检查packContents是否能触发ACK，即含有至少一帧的ACK触发帧
+// 检查packContents是否能触发ACK，即含有至少一帧的ACK触发帧
 func (p *packetContents) IsAckEliciting() bool {
 	return ackhandler.HasAckElicitingFrames(p.frames)
 }
 
-//根据包的内容设置其最大ACK、其中帧的OnLost函数（用于丢失重传）等信息
+// 根据包的内容设置其最大ACK、其中帧的OnLost函数（用于丢失重传）等信息
 func (p *packetContents) ToAckHandlerPacket(now time.Time, q *retransmissionQueue) *ackhandler.Packet {
 	largestAcked := protocol.InvalidPacketNumber
 	if p.ack != nil {
@@ -584,11 +584,10 @@ func (p *packetPacker) composeNextPacket(maxFrameSize protocol.ByteCount, onlyAc
 	// 把PRAckNotify Frame从PRAckNotifyFrames中放到retransmissionQueue中
 	// 因为sendStream中的重传队列只能存Stream帧
 	if len(PRAckNotifyFrames) > 0 {
-		for _, f := range(PRAckNotifyFrames) {
+		for _, f := range PRAckNotifyFrames {
 			p.retransmissionQueue.AddAppData(f)
 			PRAckNotifyFrames = PRAckNotifyFrames[1:]
 		}
-		
 	}
 	payload := &payload{frames: make([]ackhandler.Frame, 0, 1)}
 	hasData := p.framer.HasData()
@@ -623,7 +622,7 @@ func (p *packetPacker) composeNextPacket(maxFrameSize protocol.ByteCount, onlyAc
 		return payload
 	}
 
-	if hasRetransmission {  //除了StreamFrame的重传
+	if hasRetransmission { //除了StreamFrame的重传
 		for {
 			remainingLen := maxFrameSize - payload.length
 			if remainingLen < protocol.MinStreamFrameSize {
@@ -633,12 +632,13 @@ func (p *packetPacker) composeNextPacket(maxFrameSize protocol.ByteCount, onlyAc
 			if f == nil {
 				break
 			}
+
 			payload.frames = append(payload.frames, ackhandler.Frame{Frame: f})
 			payload.length += f.Length(p.version)
 		}
 	}
 
-	if hasData {  //包括StreamFrame的重传
+	if hasData { //包括StreamFrame的重传
 		var lengthAdded protocol.ByteCount
 		payload.frames, lengthAdded = p.framer.AppendControlFrames(payload.frames, maxFrameSize-payload.length)
 		payload.length += lengthAdded
@@ -787,7 +787,7 @@ func (p *packetPacker) appendPacket(buffer *packetBuffer, header *wire.ExtendedH
 	}
 	for _, frame := range payload.frames {
 		var err error
-		raw, err = frame.Append(raw, p.version)  // 调用frame自己的组装方法append，以字节形式装到raw上
+		raw, err = frame.Append(raw, p.version) // 调用frame自己的组装方法append，以字节形式装到raw上
 		if err != nil {
 			return nil, err
 		}

@@ -132,7 +132,7 @@ func (s *sendStream) Write(p []byte) (int, error) {
 		if s.canBufferStreamFrame() && len(s.dataForWriting) > 0 {
 			// 空的话就直接添加，不空就加载nextFrame.Data中
 			if s.nextFrame == nil {
-				f := wire.GetStreamFrame()  //只是生成一个空的StreamFrame
+				f := wire.GetStreamFrame() //只是生成一个空的StreamFrame
 				f.Offset = s.writeOffset
 				f.StreamID = s.streamID
 				f.DataLenPresent = true
@@ -198,9 +198,9 @@ func (s *sendStream) Write(p []byte) (int, error) {
 	return bytesWritten, nil
 }
 
-//检查待写入的帧能否存下要写入的数据，
-//检查方式为比较帧中已有数据的大小加上要写入数据的大小是否小于QUIC报文允许的最大数据大小，
-//如果返回True，则代表能装下。
+// 检查待写入的帧能否存下要写入的数据，
+// 检查方式为比较帧中已有数据的大小加上要写入数据的大小是否小于QUIC报文允许的最大数据大小，
+// 如果返回True，则代表能装下。
 func (s *sendStream) canBufferStreamFrame() bool {
 	var l protocol.ByteCount
 	if s.nextFrame != nil {
@@ -218,11 +218,11 @@ func (s *sendStream) popStreamFrame(maxBytes protocol.ByteCount) (*ackhandler.Fr
 	pr_maxBytes := maxBytes
 
 	if PR_ENABLED {
-		pr_maxBytes = maxBytes - (1 + 8)   
+		pr_maxBytes = maxBytes - (1 + 8)
 	}
-	
+
 	f, hasMoreData := s.popNewOrRetransmittedStreamFrame(pr_maxBytes)
-	
+
 	if f != nil {
 		s.numOutstandingFrames++
 	}
@@ -236,13 +236,13 @@ func (s *sendStream) popStreamFrame(maxBytes protocol.ByteCount) (*ackhandler.Fr
 	if PR_ENABLED {
 		// 将Stream帧转为PRStream帧
 		prf := &wire.PRStreamFrame{
-			StreamID: f.StreamID,
-			Offset: f.Offset,
-			Data: f.Data,
-			Fin: f.Fin,
+			StreamID:       f.StreamID,
+			Offset:         f.Offset,
+			Data:           f.Data,
+			Fin:            f.Fin,
 			DataLenPresent: f.DataLenPresent,
-			PTDA: PTDA,  
-			PtdaC: PtadC,  
+			PTDA:           PTDA,
+			PtdaC:          PtadC,
 			// fromPool: f.fromPool,  // 首字母小写的结构变量不能在外面用
 		}
 		switch PTDA {
@@ -263,7 +263,6 @@ func (s *sendStream) popStreamFrame(maxBytes protocol.ByteCount) (*ackhandler.Fr
 
 	return &ackhandler.Frame{Frame: f, OnLost: s.queueRetransmission, OnAcked: s.frameAcked}, hasMoreData
 }
-
 
 func (s *sendStream) popNewOrRetransmittedStreamFrame(maxBytes protocol.ByteCount) (*wire.StreamFrame, bool /* has more data to send */) {
 	if s.canceledWrite || s.closeForShutdownErr != nil {
@@ -474,43 +473,44 @@ func (s *sendStream) prQueueRetransmission(f wire.Frame) {
 	frame := f.(*wire.PRStreamFrame)
 
 	pr_retran_enabled := false
-	switch frame.PtdaC {
+
+	switch frame.PTDA {
 	case 0x80: // 概率重传策略,生成0-10000的随机值，ptdaC>它则PR重传，小于则正常重传
-		pC :=  int(frame.PtdaC)
+		pC := int(frame.PtdaC)
 		rand.Seed(time.Now().Unix())
-		retran_threshold := rand.Intn(10000)
-		if pC > int(retran_threshold) {
+		retran_num := rand.Intn(10000)
+		if pC < int(retran_num) {
 			pr_retran_enabled = true
 		}
 	case 0x40:
 	case 0x20:
 	case 0x10:
 	}
-	
-	if !pr_retran_enabled {  // 正常重传
+	if pr_retran_enabled { // pr retransmision
+		prAckNf := wire.PRAckNotifyFrame{
+			StreamID:       frame.StreamID,
+			Offset:         frame.Offset,
+			PRDataLen:      uint64(frame.DataLen()),
+			Fin:            frame.Fin,
+			DataLenPresent: frame.DataLenPresent,
+			PTDA:           frame.PTDA,
+			P:              frame.P,
+			T:              frame.T,
+			D:              frame.D,
+			A:              frame.A,
+			PtdaC:          frame.PtdaC,
+		}
+		PRAckNotifyFrames = append(PRAckNotifyFrames, &prAckNf)
+		s.prStreamframeAcked(frame)
+	} else { // 正常重传
 		sf := wire.StreamFrame{
-			StreamID: frame.StreamID,
-			Offset: frame.Offset,
-			Data: frame.Data,
-			Fin: frame.Fin,
+			StreamID:       frame.StreamID,
+			Offset:         frame.Offset,
+			Data:           frame.Data,
+			Fin:            frame.Fin,
 			DataLenPresent: frame.DataLenPresent,
 		}
 		s.queueRetransmission(&sf)
-	} else {
-		prAckNf := wire.PRAckNotifyFrame {
-			StreamID: frame.StreamID,
-			Offset: frame.Offset,
-			PRDataLen: uint64(frame.DataLen()),
-			Fin: frame.Fin,
-			DataLenPresent: frame.DataLenPresent,
-			PTDA: frame.PTDA,
-			P: frame.P,
-			T: frame.T,
-			D: frame.D,
-			A: frame.A,
-			PtdaC: frame.PtdaC,
-		}
-		PRAckNotifyFrames = append(PRAckNotifyFrames, &prAckNf)
 	}
 }
 
